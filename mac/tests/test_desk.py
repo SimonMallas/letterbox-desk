@@ -23,7 +23,7 @@ from bell_desk import cli  # noqa: E402
 from bell_desk.letterbox import doorbell, find_root, pointer_path, roster  # noqa: E402
 from bell_desk.phone import PhoneSide  # noqa: E402
 from bell_desk.sender import PinnedHelper, file_sha256  # noqa: E402
-from bell_desk.server import App  # noqa: E402
+from bell_desk.server import App, DeskHTTPServer  # noqa: E402
 from bell_desk.store import State  # noqa: E402
 from bell_desk.watcher import read_header  # noqa: E402
 from tests.test_listener import FAKE_HELPER, ISOLATED_PATH, letter, make_bus  # noqa: E402
@@ -451,6 +451,43 @@ class EveryPublicEditionTests(unittest.TestCase):
                     self.assertEqual((fields["from"], fields["priority"], fields["re"]),
                                      ("desk", "now", "2026-10-07T120000-alice-info-x-1234abcd"))
                     self.assertTrue(pathlib.Path(path).read_text().rstrip().endswith(f"Hello {edition}."))
+
+
+class HTTPServerStartupTests(unittest.TestCase):
+    def test_accepts_connections_without_waiting_for_reverse_dns(self):
+        release_dns = threading.Event()
+        ready = threading.Event()
+        servers = []
+        errors = []
+
+        def blocked_dns(*args):
+            release_dns.wait(10)
+            return "slow.example"
+
+        def start():
+            try:
+                servers.append(DeskHTTPServer(("127.0.0.1", 0), None))
+            except Exception as error:
+                errors.append(error)
+            finally:
+                ready.set()
+
+        with patch("socket.getfqdn", side_effect=blocked_dns):
+            worker = threading.Thread(target=start, daemon=True)
+            worker.start()
+            try:
+                self.assertTrue(ready.wait(1), "server startup waited for reverse DNS")
+                self.assertEqual(errors, [])
+                server = servers[0]
+                with socket.create_connection(server.server_address, timeout=1):
+                    pass
+                self.assertEqual(server.server_name, "127.0.0.1")
+                self.assertEqual(server.server_port, server.server_address[1])
+            finally:
+                release_dns.set()
+                worker.join(2)
+                for server in servers:
+                    server.server_close()
 
 
 class PhoneSideTests(unittest.TestCase):
