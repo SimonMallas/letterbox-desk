@@ -1,12 +1,14 @@
 # Letterbox Desk
 
-Letterbox Desk is your own seat on your Letterbox. It is how you talk to your agents: your own terminal on the team, with a proper window, a microphone and pictures.
+![Letterbox Desk: your own seat on your Letterbox, with Agent Bell on iPhone](docs/img/hero.jpg)
 
-![Letterbox Desk: a conversation with an agent, and a reply being written that also goes to a second agent, with a picture](docs/img/desk-conversation.png)
+Letterbox Desk is your own seat on your Letterbox. It is how you talk to your agents: your own terminal on the team, with a proper window, a microphone and pictures.
 
 On the Letterbox, you are `desk`. Your agents write to `desk` when they need you. Everything you write goes out from `desk`, through your Letterbox's own helper. Every letter is a file in your Letterbox. That is what your agents read, so nothing you clear from the screen is lost.
 
 ## What it does
+
+![Letterbox Desk: a conversation with an agent, and a reply being written that also goes to a second agent, with a picture](docs/img/desk-conversation.png)
 
 - **One rolling conversation per agent.** Their letters are on the left; yours are on the right. Letters sent from the phone appear there too.
 - **New letter.** Write to one agent or several. Before you send, the Desk shows exactly what goes out to each one.

@@ -619,16 +619,18 @@ sys.exit(cli.main(sys.argv[2:]))
                                                cwd=str(pathlib.Path(__file__).resolve().parents[1]), env=env,
                                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
                     try:
-                        deadline = time.time() + 5
-                        while service.lock_free(state_dir) and process.poll() is None and time.time() < deadline:
+                        lock_deadline = time.monotonic() + 15
+                        while service.lock_free(state_dir) and process.poll() is None and time.monotonic() < lock_deadline:
                             time.sleep(0.02)
                         self.assertIsNone(process.poll(), process.stderr.read() if process.poll() is not None else "")
+                        self.assertFalse(service.lock_free(state_dir), "listener did not take its state lock")
+                        connect_deadline = time.monotonic() + 15
                         connected = False
                         while True:
                             with socket.socket() as probe:
                                 probe.settimeout(0.2)
                                 connected = probe.connect_ex(("127.0.0.1", port)) == 0
-                            if not phone or (connected and os.path.exists(marker)) or time.time() >= deadline:
+                            if not phone or (connected and os.path.exists(marker)) or time.monotonic() >= connect_deadline:
                                 break
                             time.sleep(0.02)
                         self.assertEqual(connected, phone)
