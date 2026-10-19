@@ -1,0 +1,505 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		086ACF00D2159208BBC3236B /* RingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08FEF147D3BD56B842E235C9 /* RingPolicy.swift */; };
+		0B9F7D6635FFCB871CCD4875 /* mouth_smile.png in Resources */ = {isa = PBXBuildFile; fileRef = 21A6508BDBD96BA05F4B0F11 /* mouth_smile.png */; };
+		130CE5CF2DC5747D7C387044 /* BellCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C6BC554CDD786A4EBDD9F48 /* BellCrypto.swift */; };
+		381CD95C93A9BF98B9C7B2C4 /* mouth_line.png in Resources */ = {isa = PBXBuildFile; fileRef = E507145C190523EA52D16EAD /* mouth_line.png */; };
+		53C5D6AF25286BD40769EE2A /* mouth_frown.png in Resources */ = {isa = PBXBuildFile; fileRef = B072DCE0B8398855E481C6AC /* mouth_frown.png */; };
+		656EB00F8B4EC35AE49E7F72 /* ActionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234C814FD4C0F0B7197074A1 /* ActionsView.swift */; };
+		6A6C8B4B0A6348FDDED49B97 /* CharacterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2FCD2EE51879BD239D2ECA6 /* CharacterView.swift */; };
+		718184BBAFF49E475900A4F6 /* eye_L.png in Resources */ = {isa = PBXBuildFile; fileRef = 21A1FEA259C5227428806826 /* eye_L.png */; };
+		7269FBABAE379181092B78DF /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A2E2537F75EBF82BBCECA2 /* SettingsView.swift */; };
+		8DB67D333F600D266FB2AA73 /* Chime.swift in Sources */ = {isa = PBXBuildFile; fileRef = D464452CF0ED03025143F516 /* Chime.swift */; };
+		AADA00AFD4D94AE60CF28B93 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00818E61EE9DF314FCC127C5 /* RootView.swift */; };
+		AC4403BD08FA5C60987CB7B3 /* Dictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6C77BA62D0F91EBDC73F5D4 /* Dictation.swift */; };
+		B260746AD91987C919E49788 /* TickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B26E41D6E1A5BD3CD598D81E /* TickerView.swift */; };
+		B80D1F4BEB8CC5DE40205350 /* PairingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D572488926D2F0159F32AECF /* PairingStore.swift */; };
+		B84782354B837846A09CBA2F /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7682ACA9272318E2F38E52FE /* Theme.swift */; };
+		D2E4AAA7DA64875F246EA262 /* mouth_o.png in Resources */ = {isa = PBXBuildFile; fileRef = C4F7C7CCD5228F0D3FABB023 /* mouth_o.png */; };
+		D424EBEF846DA13BD658B62E /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A2D0D0ABF1BC1AFF6A835F /* AppModel.swift */; };
+		DB535E156E628F53F4BD8784 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5CD15C76E17A530C5EADA0EF /* Assets.xcassets */; };
+		DE1454A7A8DBCD5BCF7EA8E4 /* Transcript.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5C3A806A2E13ADB06A613D0 /* Transcript.swift */; };
+		DFD0E42F53B4018E9B9FA7D8 /* EventParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664D662F99B5490E1486D22D /* EventParser.swift */; };
+		DFFF97936E85EE818C5A0900 /* eye_R.png in Resources */ = {isa = PBXBuildFile; fileRef = B2D38E2DF3C597166B4E90AE /* eye_R.png */; };
+		EB73C473D1F53AF5A616AFCE /* body.png in Resources */ = {isa = PBXBuildFile; fileRef = F9009E8A7602DDA286AA75F7 /* body.png */; };
+		ECDDA267402D46C918B41C10 /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 392DC4E0F82D52389DFF11AC /* Discovery.swift */; };
+		F6E99F473CF9039D84DA931D /* ListenerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D8C25A8D8AACAC0C5B023C6 /* ListenerClient.swift */; };
+		F70D537CB95F2E5005D3C62C /* BellDeskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A83D93AB318D53F50FF6A86F /* BellDeskApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		00818E61EE9DF314FCC127C5 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		08FEF147D3BD56B842E235C9 /* RingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RingPolicy.swift; sourceTree = "<group>"; };
+		21A1FEA259C5227428806826 /* eye_L.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = eye_L.png; sourceTree = "<group>"; };
+		21A6508BDBD96BA05F4B0F11 /* mouth_smile.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = mouth_smile.png; sourceTree = "<group>"; };
+		234C814FD4C0F0B7197074A1 /* ActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionsView.swift; sourceTree = "<group>"; };
+		2D8C25A8D8AACAC0C5B023C6 /* ListenerClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenerClient.swift; sourceTree = "<group>"; };
+		392DC4E0F82D52389DFF11AC /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
+		58A2D0D0ABF1BC1AFF6A835F /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		5CD15C76E17A530C5EADA0EF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		664D662F99B5490E1486D22D /* EventParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventParser.swift; sourceTree = "<group>"; };
+		7682ACA9272318E2F38E52FE /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		7C6BC554CDD786A4EBDD9F48 /* BellCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BellCrypto.swift; sourceTree = "<group>"; };
+		810E37DC6E9F1CBB38E1E4BA /* BellDesk.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BellDesk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A83D93AB318D53F50FF6A86F /* BellDeskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BellDeskApp.swift; sourceTree = "<group>"; };
+		B072DCE0B8398855E481C6AC /* mouth_frown.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = mouth_frown.png; sourceTree = "<group>"; };
+		B0A2E2537F75EBF82BBCECA2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B26E41D6E1A5BD3CD598D81E /* TickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TickerView.swift; sourceTree = "<group>"; };
+		B2D38E2DF3C597166B4E90AE /* eye_R.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = eye_R.png; sourceTree = "<group>"; };
+		C4F7C7CCD5228F0D3FABB023 /* mouth_o.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = mouth_o.png; sourceTree = "<group>"; };
+		C5C3A806A2E13ADB06A613D0 /* Transcript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transcript.swift; sourceTree = "<group>"; };
+		D464452CF0ED03025143F516 /* Chime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chime.swift; sourceTree = "<group>"; };
+		D572488926D2F0159F32AECF /* PairingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingStore.swift; sourceTree = "<group>"; };
+		D6C77BA62D0F91EBDC73F5D4 /* Dictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dictation.swift; sourceTree = "<group>"; };
+		E507145C190523EA52D16EAD /* mouth_line.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = mouth_line.png; sourceTree = "<group>"; };
+		F2FCD2EE51879BD239D2ECA6 /* CharacterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterView.swift; sourceTree = "<group>"; };
+		F9009E8A7602DDA286AA75F7 /* body.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = body.png; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0C085C39CCF254CDC6C76C28 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A83D93AB318D53F50FF6A86F /* BellDeskApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		1B38B057C421FA5C3765CCA4 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				810E37DC6E9F1CBB38E1E4BA /* BellDesk.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5058AEDF31BEB555B074525A /* ArtSource */ = {
+			isa = PBXGroup;
+			children = (
+				F9009E8A7602DDA286AA75F7 /* body.png */,
+				21A1FEA259C5227428806826 /* eye_L.png */,
+				B2D38E2DF3C597166B4E90AE /* eye_R.png */,
+				B072DCE0B8398855E481C6AC /* mouth_frown.png */,
+				E507145C190523EA52D16EAD /* mouth_line.png */,
+				C4F7C7CCD5228F0D3FABB023 /* mouth_o.png */,
+				21A6508BDBD96BA05F4B0F11 /* mouth_smile.png */,
+			);
+			path = ArtSource;
+			sourceTree = "<group>";
+		};
+		634849B5607BAAA1D2790029 /* Store */ = {
+			isa = PBXGroup;
+			children = (
+				D572488926D2F0159F32AECF /* PairingStore.swift */,
+			);
+			path = Store;
+			sourceTree = "<group>";
+		};
+		6BBFDABAD9C623D815C00277 /* BellDesk */ = {
+			isa = PBXGroup;
+			children = (
+				5CD15C76E17A530C5EADA0EF /* Assets.xcassets */,
+				0C085C39CCF254CDC6C76C28 /* App */,
+				7C76A34F2BB49C11342F7A3D /* Audio */,
+				AEB3E20C17841E3C1A198E7F /* Crypto */,
+				B8F43CE7534A253FE679D63F /* Model */,
+				9AF2FF2D2C23ECF730F466A8 /* Net */,
+				F479979F144A4F126A2C81B2 /* Speech */,
+				634849B5607BAAA1D2790029 /* Store */,
+				CFF20613EFD0F118FC60826D /* Views */,
+			);
+			path = BellDesk;
+			sourceTree = "<group>";
+		};
+		6C98A3F9131C913D2112C31E = {
+			isa = PBXGroup;
+			children = (
+				5058AEDF31BEB555B074525A /* ArtSource */,
+				6BBFDABAD9C623D815C00277 /* BellDesk */,
+				1B38B057C421FA5C3765CCA4 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7C76A34F2BB49C11342F7A3D /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				D464452CF0ED03025143F516 /* Chime.swift */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
+		9AF2FF2D2C23ECF730F466A8 /* Net */ = {
+			isa = PBXGroup;
+			children = (
+				392DC4E0F82D52389DFF11AC /* Discovery.swift */,
+				664D662F99B5490E1486D22D /* EventParser.swift */,
+				2D8C25A8D8AACAC0C5B023C6 /* ListenerClient.swift */,
+			);
+			path = Net;
+			sourceTree = "<group>";
+		};
+		AEB3E20C17841E3C1A198E7F /* Crypto */ = {
+			isa = PBXGroup;
+			children = (
+				7C6BC554CDD786A4EBDD9F48 /* BellCrypto.swift */,
+			);
+			path = Crypto;
+			sourceTree = "<group>";
+		};
+		B8F43CE7534A253FE679D63F /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				58A2D0D0ABF1BC1AFF6A835F /* AppModel.swift */,
+				08FEF147D3BD56B842E235C9 /* RingPolicy.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		CFF20613EFD0F118FC60826D /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				234C814FD4C0F0B7197074A1 /* ActionsView.swift */,
+				F2FCD2EE51879BD239D2ECA6 /* CharacterView.swift */,
+				00818E61EE9DF314FCC127C5 /* RootView.swift */,
+				B0A2E2537F75EBF82BBCECA2 /* SettingsView.swift */,
+				7682ACA9272318E2F38E52FE /* Theme.swift */,
+				B26E41D6E1A5BD3CD598D81E /* TickerView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		F479979F144A4F126A2C81B2 /* Speech */ = {
+			isa = PBXGroup;
+			children = (
+				D6C77BA62D0F91EBDC73F5D4 /* Dictation.swift */,
+				C5C3A806A2E13ADB06A613D0 /* Transcript.swift */,
+			);
+			path = Speech;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		ABBCC2739D35C2086349D07C /* BellDesk */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 765C3A0AD1A0EA77148F5CF1 /* Build configuration list for PBXNativeTarget "BellDesk" */;
+			buildPhases = (
+				1DC6FAE6D013B3657BF3F937 /* Sources */,
+				A674893AA4600965D21C5275 /* Bundle chime.wav if present */,
+				B060C388DBFD5B1A15501FF0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BellDesk;
+			packageProductDependencies = (
+			);
+			productName = BellDesk;
+			productReference = 810E37DC6E9F1CBB38E1E4BA /* BellDesk.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		79B1A789193F464CB2F64DB9 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					ABBCC2739D35C2086349D07C = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 65B593C24EB1FD4C9E620193 /* Build configuration list for PBXProject "BellDesk" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 6C98A3F9131C913D2112C31E;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1B38B057C421FA5C3765CCA4 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				ABBCC2739D35C2086349D07C /* BellDesk */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B060C388DBFD5B1A15501FF0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DB535E156E628F53F4BD8784 /* Assets.xcassets in Resources */,
+				EB73C473D1F53AF5A616AFCE /* body.png in Resources */,
+				718184BBAFF49E475900A4F6 /* eye_L.png in Resources */,
+				DFFF97936E85EE818C5A0900 /* eye_R.png in Resources */,
+				53C5D6AF25286BD40769EE2A /* mouth_frown.png in Resources */,
+				381CD95C93A9BF98B9C7B2C4 /* mouth_line.png in Resources */,
+				D2E4AAA7DA64875F246EA262 /* mouth_o.png in Resources */,
+				0B9F7D6635FFCB871CCD4875 /* mouth_smile.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A674893AA4600965D21C5275 /* Bundle chime.wav if present */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle chime.wav if present";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "src=\"$SRCROOT/BellDesk/Resources/chime.wav\"\ndst=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/chime.wav\"\nif [ -f \"$src\" ]; then cp \"$src\" \"$dst\"; else rm -f \"$dst\"; fi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1DC6FAE6D013B3657BF3F937 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				656EB00F8B4EC35AE49E7F72 /* ActionsView.swift in Sources */,
+				D424EBEF846DA13BD658B62E /* AppModel.swift in Sources */,
+				130CE5CF2DC5747D7C387044 /* BellCrypto.swift in Sources */,
+				F70D537CB95F2E5005D3C62C /* BellDeskApp.swift in Sources */,
+				6A6C8B4B0A6348FDDED49B97 /* CharacterView.swift in Sources */,
+				8DB67D333F600D266FB2AA73 /* Chime.swift in Sources */,
+				AC4403BD08FA5C60987CB7B3 /* Dictation.swift in Sources */,
+				ECDDA267402D46C918B41C10 /* Discovery.swift in Sources */,
+				DFD0E42F53B4018E9B9FA7D8 /* EventParser.swift in Sources */,
+				F6E99F473CF9039D84DA931D /* ListenerClient.swift in Sources */,
+				B80D1F4BEB8CC5DE40205350 /* PairingStore.swift in Sources */,
+				086ACF00D2159208BBC3236B /* RingPolicy.swift in Sources */,
+				AADA00AFD4D94AE60CF28B93 /* RootView.swift in Sources */,
+				7269FBABAE379181092B78DF /* SettingsView.swift in Sources */,
+				B84782354B837846A09CBA2F /* Theme.swift in Sources */,
+				B260746AD91987C919E49788 /* TickerView.swift in Sources */,
+				DE1454A7A8DBCD5BCF7EA8E4 /* Transcript.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		074D349E65C395C35AD991F8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		2AF703FD85B87E994108726F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				COMPRESS_PNG_FILES = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BellDesk/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.aitortoise.agentbell;
+				PRODUCT_NAME = BellDesk;
+				SDKROOT = iphoneos;
+				STRIP_PNG_TEXT = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		51C159F9854AB4A4642542A9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		709286343E2B6DCFD9DA823B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				COMPRESS_PNG_FILES = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BellDesk/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.aitortoise.agentbell;
+				PRODUCT_NAME = BellDesk;
+				SDKROOT = iphoneos;
+				STRIP_PNG_TEXT = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		65B593C24EB1FD4C9E620193 /* Build configuration list for PBXProject "BellDesk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				51C159F9854AB4A4642542A9 /* Debug */,
+				074D349E65C395C35AD991F8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		765C3A0AD1A0EA77148F5CF1 /* Build configuration list for PBXNativeTarget "BellDesk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2AF703FD85B87E994108726F /* Debug */,
+				709286343E2B6DCFD9DA823B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 79B1A789193F464CB2F64DB9 /* Project object */;
+}

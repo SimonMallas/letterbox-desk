@@ -1,0 +1,41 @@
+{
+  "server_private": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "device_private": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+  "server_public": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8=",
+  "device_public": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ=",
+  "device_nonce": "QEFCQ0RFRkdISUpLTE1OTw==",
+  "server_nonce": "UFFSU1RVVldYWVpbXF1eXw==",
+  "commitment": "YeUXWnGL5Thk9+fNVLdjXaePtWHOcQMnEST8b5D9b9I=",
+  "pairing_code": "461702",
+  "device_id": "a0289810032eb417",
+  "auth_key": "sDMpNGD3emfYHxLi01Wc6rH25ESq43kKLeqBHABkx6k=",
+  "request": {
+    "method": "POST",
+    "path": "/v1/dictation",
+    "ts": 1791360000,
+    "nonce": "00112233445566778899aabbccddeeff",
+    "body": "{\"request_id\":\"3f2a8c1e-5b7d-4e9f-a1c2-0d4b6e8f9a01\",\"to\":\"bob\",\"text\":\"Check my relay is still up.\"}",
+    "canonical": "POST\n/v1/dictation\n1791360000\n00112233445566778899aabbccddeeff\n04274a9b7366d90d69f3377f92d66d387ea3e557111824d1d5a28ea8e6fb3a6e",
+    "sig": "uNgmdxXUVq/DFneeArsjbGlbqtQ0ymi9oUPXzdEBGI8="
+  },
+  "empty_body_get": {
+    "method": "GET",
+    "path": "/v1/events",
+    "ts": 1791360000,
+    "nonce": "00112233445566778899aabbccddeeff",
+    "sig": "0exfCbxRFTcOG1xHwn0A8cWmR1O5JrtR9x5o5LajVl4="
+  },
+  "event": {
+    "json": "{\"type\":\"mail\",\"stream\":\"00112233445566778899aabbccddeeff\",\"seq\":1,\"to\":\"alice\",\"from\":\"bob\",\"letter_type\":\"result\",\"id\":\"2026-10-07T082113-bob-result-demo-5c1e8a20\",\"priority\":\"now\",\"ts\":\"2026-10-07T08:21:13Z\"}",
+    "sig": "FoomcHY7lDYyS9cm6pyrvvhzXZp4tt2kvbwMA+WN5Ac="
+  },
+  "response": {
+    "method": "POST",
+    "path": "/v1/dictation",
+    "nonce": "00112233445566778899aabbccddeeff",
+    "status": 200,
+    "body": "{\"status\":\"sent\",\"request_id\":\"3f2a8c1e-5b7d-4e9f-a1c2-0d4b6e8f9a01\",\"id\":\"2026-10-07T082200-desk-info-desk-dictation-1a2b3c4d\"}",
+    "canonical_sha256": "8cfdd7b56ab1a3be77ee3be49b885b21ec6c748a8ee2df7b9f5ca2b50ff9f750",
+    "sig": "lLRiXh60IYUlUVj7h/JdEDAtaKZyVW/rKvpP3g3P2Ms="
+  }
+}

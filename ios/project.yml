@@ -1,0 +1,74 @@
+# Source of truth: edit this file, then run `cd ios && xcodegen generate`.
+# Commit the regenerated BellDesk.xcodeproj and Info.plist alongside it.
+name: BellDesk
+options:
+  bundleIdPrefix: dev.aitortoise
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+targets:
+  BellDesk:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: BellDesk
+        excludes:
+          - Resources
+          - Info.plist
+      # The character layers, bundled exactly as delivered.
+      - path: ArtSource
+        buildPhase: resources
+        excludes:
+          - NOTES.md
+    # Dropping BellDesk/Resources/chime.wav in is all it takes: the next build bundles it.
+    # (Not a folder reference: a top-level "Resources" folder in an iOS bundle breaks codesign.)
+    postCompileScripts:
+      - name: Bundle chime.wav if present
+        basedOnDependencyAnalysis: false
+        script: |
+          src="$SRCROOT/BellDesk/Resources/chime.wav"
+          dst="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/chime.wav"
+          if [ -f "$src" ]; then cp "$src" "$dst"; else rm -f "$dst"; fi
+    info:
+      path: BellDesk/Info.plist
+      properties:
+        CFBundleDisplayName: Bell
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIStatusBarHidden: true
+        UIRequiresFullScreen: true
+        NSMicrophoneUsageDescription: Bell listens only while you hold the button, to turn what you say into a short letter.
+        NSSpeechRecognitionUsageDescription: Your words are turned into text so you can check them on screen before anything is sent.
+        NSLocalNetworkUsageDescription: Bell talks to the listener on your Mac over the local network.
+        NSBonjourServices:
+          - _belldesk._tcp
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.aitortoise.agentbell
+        PRODUCT_NAME: BellDesk
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Ship the character layers byte-for-byte as delivered.
+        COMPRESS_PNG_FILES: NO
+        STRIP_PNG_TEXT: NO
+        # The chime script reads an optional file it cannot declare as an input.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_PREVIEWS: YES
+    scheme: {}
