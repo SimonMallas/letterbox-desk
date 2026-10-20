@@ -1,4 +1,4 @@
-# Letterbox Desk and Agent Bell — phone ⇄ Mac protocol, v1
+# Letterbox Desk and Letterbox Bell — phone ⇄ Mac protocol, v1
 
 The Mac listener (`mac/`, `bell-desk serve`) watches the letterbox inboxes and
 rings the phone; the phone (`ios/`) can post one confirmed dictated letter as

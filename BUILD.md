@@ -5,7 +5,7 @@
 The Mac listener needs Python 3.11 or newer. Its native window uses SwiftUI and AppKit and
 is compiled with the installed Xcode Command Line Tools, not a Mac Xcode project. Its explicit
 macOS 13.0 deployment target is compile-verified; runtime testing here is on macOS 27.
-Older supported systems still need runtime validation. Agent Bell explicitly targets iOS 15.0 or newer and needs Xcode to build.
+Older supported systems still need runtime validation. Letterbox Bell explicitly targets iOS 15.0 or newer and needs Xcode to build.
 
 From the repository root, create a development environment:
 
@@ -45,7 +45,7 @@ needed for regeneration; a clean checkout can build its committed project withou
 For a signed device build/install, connect and trust the iPhone, configure your Apple team,
 and deliberately run `ios/install-to-phone.sh YOUR_TEAM_ID`. It requires `ideviceinstaller`
 (`brew install ideviceinstaller` with Homebrew). This command installs on the connected phone;
-it is not part of the checks below. Open Agent Bell and pair after installation.
+it is not part of the checks below. Open Letterbox Bell and pair after installation.
 
 For the full validation commands and release gate, see [TEST.md](TEST.md).
 To run the bare `bell-desk` command used in the guide, first activate the environment with

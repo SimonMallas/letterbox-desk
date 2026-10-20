@@ -36,7 +36,7 @@ struct BellFigure: View {
             ForEach(["body", "eye_L", "eye_R", "mouth_smile"], id: \.self) { name in
                 if let img = image(name) { Image(nsImage: img).resizable().scaledToFit() }
             }
-        }.frame(width: size, height: size).accessibilityLabel("Agent Bell")
+        }.frame(width: size, height: size).accessibilityLabel("Letterbox Bell")
     }
 }
 

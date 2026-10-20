@@ -14,7 +14,7 @@ struct PairView: View {
                 Text("Pair a phone")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(Palette.ink)
-                Text("Connect Agent Bell on your iPhone to Letterbox Desk.")
+                Text("Connect Letterbox Bell on your iPhone to this Mac.")
                     .font(.system(size: 13))
                     .foregroundStyle(Palette.muted)
             }

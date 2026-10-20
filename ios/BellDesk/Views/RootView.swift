@@ -52,7 +52,7 @@ private struct Header: View {
 
     var body: some View {
         HStack {
-            Text("AGENT BELL")
+            Text("LETTERBOX BELL")
                 .font(.mono(12, .medium))
                 .tracking(1.68)
                 .foregroundColor(Palette.muted)

@@ -72,4 +72,4 @@ else
   esac
 fi
 
-printf '\nDone. Letterbox Desk is ready. If you enabled iPhone (Agent Bell), open Bell on the phone to pair.\n'
+printf '\nDone. Letterbox Desk is ready. If you enabled iPhone (Letterbox Bell), open Bell on the phone to pair.\n'

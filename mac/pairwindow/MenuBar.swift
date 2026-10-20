@@ -91,7 +91,7 @@ final class MenuBar: NSObject, NSMenuDelegate, NSWindowDelegate {
         write.isEnabled = !model.seats.isEmpty
         menu.addItem(write)
         menu.addItem(.separator())
-        let phone = NSMenuItem(title: "iPhone (Agent Bell)", action: #selector(togglePhone), keyEquivalent: "")
+        let phone = NSMenuItem(title: "iPhone (Letterbox Bell)", action: #selector(togglePhone), keyEquivalent: "")
         phone.target = self
         phone.state = phoneEnabled ? .on : .off
         menu.addItem(phone)

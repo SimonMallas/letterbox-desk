@@ -2,7 +2,7 @@
 
 Letterbox Desk is your own seat on your Letterbox. It is how you write to your agents and read what they write back: your own terminal on the team, with a proper window, a microphone and pictures.
 
-Part one covers the Desk. Part two covers Agent Bell, an optional add-on that turns an iPhone into an alert and a microphone for your agents. To install, see the [README](../README.md). The screenshots use sample agents and fixture letters.
+Part one covers the Desk. Part two covers Letterbox Bell, an optional add-on that turns an iPhone into an alert and a microphone for your agents. To install, see the [README](../README.md). The screenshots use sample agents and fixture letters.
 
 ## Part one: Letterbox Desk
 
@@ -15,7 +15,7 @@ The Desk lives behind a bell icon in your Mac's menu bar. A dot on it means you 
 - **Open Letterbox Desk**: opens the window, with the unread count beside it.
 - **New letter…** (⌥⌘B from anywhere): opens the window ready to write.
 - Your agents, and whether the Desk's listener is running. If your Letterbox reports team status, it shows here too.
-- **iPhone (Agent Bell)**: only for the add-on. See [Turning it on](#turning-it-on).
+- **iPhone (Letterbox Bell)**: only for the add-on. See [Turning it on](#turning-it-on).
 
 ### Your conversations
 
@@ -84,9 +84,9 @@ To see where things stand: `bell-desk attachments status`. To set it up later, i
 | "Pictures are not set up yet" | That agent hasn't answered its picture check. Press **Ask … to set up pictures**, or **Send without the picture**. |
 | The bell menu says the listener isn't running | Start the Desk again. `bell-desk service status` tells you whether it starts at login. |
 
-## Part two: Agent Bell
+## Part two: Letterbox Bell
 
-Agent Bell is an add-on for the Desk. It puts an iPhone to work, typically an old one sitting on your desk, though a current phone works just as well. It does two things:
+Letterbox Bell is an add-on for the Desk. It puts an iPhone to work, typically an old one sitting on your desk, though a current phone works just as well. It does two things:
 
 - **It rings** when a letter needs you, so you notice without watching the screen.
 - **It lets you talk to your agents**: hold the button, speak, check the words, send.
@@ -97,17 +97,17 @@ You don't need it to use the Desk. It adds ringing and voice input away from the
 
 ### Turning it on
 
-Tick **iPhone (Agent Bell)** in the Desk's bell menu, then open Bell on the phone. It finds your Mac on the Wi-Fi and shows six digits. Type them into the window that appears on your Mac. Both then say "Paired". You only do this once.
+Tick **iPhone (Letterbox Bell)** in the Desk's bell menu, then open Bell on the phone. It finds your Mac on the Wi-Fi and shows six digits. Type them into the window that appears on your Mac. Both then say "Paired". You only do this once.
 
 ![Pairing: the phone shows six digits, you type them into the Mac's six boxes, and both say Paired.](img/pairing.png)
 
-Unticking **iPhone (Agent Bell)** disconnects the phone entirely.
+Unticking **iPhone (Letterbox Bell)** disconnects the phone entirely.
 
 ### The Bell button on the Desk
 
-![The Desk with the Agent Bell button in the top right corner, greyed out and reading Off.](img/desk-bell-off.png)
+![The Desk with the Letterbox Bell button in the top right corner, greyed out and reading Off.](img/desk-bell-off.png)
 
-Agent Bell sits in the top right corner of the Desk. Press it to switch the phone's ringing. It only matters when a phone is connected:
+Letterbox Bell sits in the top right corner of the Desk. Press it to switch the phone's ringing. It only matters when a phone is connected:
 
 - **On**: the phone rings when a letter needs you.
 - **Off**: the phone stays connected and you can still talk to it. It just doesn't ring.
@@ -128,7 +128,7 @@ These only happen while the Bell button on the Desk is **On**.
 
 ### Settings
 
-Press and hold **AGENT BELL** at the top of the phone's screen.
+Press and hold **LETTERBOX BELL** at the top of the phone's screen.
 
 - **Ring for**: Everything, or Only letters to me.
 - **Quiet hours**: no rings between two times you choose.
@@ -145,4 +145,4 @@ Press and hold **AGENT BELL** at the top of the phone's screen.
 | The phone says "Mac offline" | Check the Desk's bell menu shows the listener running. If it doesn't, start the Desk again. |
 | "Local Network is off" | On the iPhone, open Settings › Privacy & Security › Local Network and switch Bell on. |
 | The Mac didn't accept that code | Start again on the phone; it shows a new code. After a wrong code, pairing pauses for 30 seconds. |
-| The phone never finds the Mac | Make sure **iPhone (Agent Bell)** is ticked in the Desk's bell menu and both are on the same Wi-Fi. |
+| The phone never finds the Mac | Make sure **iPhone (Letterbox Bell)** is ticked in the Desk's bell menu and both are on the same Wi-Fi. |

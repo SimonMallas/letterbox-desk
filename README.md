@@ -1,6 +1,6 @@
 # Letterbox Desk
 
-![Letterbox Desk: your own seat on your Letterbox, with Agent Bell on iPhone](docs/img/hero.jpg)
+![Letterbox Desk: your own seat on your Letterbox, with Letterbox Bell on iPhone](docs/img/hero.jpg)
 
 Letterbox Desk is your own seat on your Letterbox. It is how you talk to your agents: your own terminal on the team, with a proper window, a microphone and pictures.
 
@@ -20,18 +20,18 @@ On the Letterbox, you are `desk`. Your agents write to `desk` when they need you
 
 The Desk is a Mac menu-bar app. It sits out of the way until you have unread mail.
 
-## Agent Bell
+## Letterbox Bell
 
-Agent Bell is the optional iPhone add-on. It turns an old phone into an alert and talk-to-your-agents device. A new phone works too, and you do not need Agent Bell to use the Desk.
+Letterbox Bell is the optional iPhone add-on. It turns an old phone into an alert and talk-to-your-agents device. A new phone works too, and you do not need Letterbox Bell to use the Desk.
 
-With Agent Bell, the phone:
+With Letterbox Bell, the phone:
 
 - rings when a letter needs you;
 - shows who wrote to whom, and when, without showing the letter itself;
 - lets you answer by voice, then check the words before sending;
 - stays connected when ringing is off, so you can still talk without the interruptions.
 
-The Agent Bell button in the top right of the Desk switches ringing on or off. The separate **iPhone (Agent Bell)** menu item connects or disconnects the phone entirely.
+The Letterbox Bell button in the top right of the Desk switches ringing on or off. The separate **iPhone (Letterbox Bell)** menu item connects or disconnects the phone entirely.
 
 The iPhone app is coming to the App Store. Until then you can build it onto your phone with Xcode; see [`BUILD.md`](BUILD.md).
 
@@ -42,7 +42,7 @@ You need:
 - Agent Letterbox 0.5.0 or newer, any edition, set up with your agents;
 - macOS 13 (Ventura) or later for Letterbox Desk (built and tested on macOS 27);
 - Python 3.11 or newer, or [uv](https://docs.astral.sh/uv/);
-- iOS 15 or later only if you want the Agent Bell add-on.
+- iOS 15 or later only if you want the Letterbox Bell add-on.
 
 From the repository:
 

@@ -95,7 +95,7 @@ def cmd_setup(args) -> int:
     previous = state.config()
     phone = phone_enabled(previous, state)
     if "bus" not in previous and not args.yes:
-        phone = input("Use the iPhone app (Agent Bell)? [y/N] ").strip().lower() in ("y", "yes")
+        phone = input("Use the iPhone app (Letterbox Bell)? [y/N] ").strip().lower() in ("y", "yes")
     config = {"bus": root, "seats": chosen, "helper": helper, "helper_kind": "letterbox", "phone": phone,
               "helper_sha256": file_sha256(helper), "doorbell": door,
               "doorbell_sha256": file_sha256(door["LETTERBOX_DOORBELL"]) if door else ""}
@@ -302,7 +302,7 @@ def main(argv=None) -> int:
     pin.add_argument("--helper", required=True)
     pin.add_argument("--sha256", required=True)
     sub.add_parser("devices", help="list paired phones")
-    phone_cmd = sub.add_parser("phone", help="turn Agent Bell's iPhone connection on or off")
+    phone_cmd = sub.add_parser("phone", help="turn Letterbox Bell's iPhone connection on or off")
     phone_cmd.add_argument("action", choices=["enable", "disable", "status"])
     setup = sub.add_parser("setup", help="point Letterbox Desk at your letterbox and choose its agents")
     setup.add_argument("--letterbox-dir", default="", help="your letterbox folder (default: $LETTERBOX_DIR, else the one Letterbox installed)")

@@ -1,6 +1,6 @@
 # Letterbox Desk and Agent Letterbox: the seam
 
-Letterbox Desk is a separate Mac add-on with its own maintainers. Agent Bell, the phone, is an
+Letterbox Desk is a separate Mac add-on with its own maintainers. Letterbox Bell, the phone, is an
 extension of the Desk. Neither is part of Letterbox. This file says what the Desk relies on from
 Letterbox, and which side owns each rule.
 
@@ -109,9 +109,9 @@ These are constraints the Desk places on itself.
 - `status.md`, self-reported agent state, pane registries, cmux titles, folder times.
 - A letter's body, beyond showing it to the person as plain text.
 
-**Agent Bell**
+**Letterbox Bell**
 - The phone ⇄ Mac protocol (pairing, signed requests, events and answers) is in `PROTOCOL.md`. It
-  belongs to the Desk and Agent Bell.
+  belongs to the Desk and Letterbox Bell.
 
 **Desk conversations and pictures (Mac-local convention)**
 - Conversation, Done, Keep, Look and ring preferences live in Desk-local `desk-view.json`.

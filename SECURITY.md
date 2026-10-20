@@ -1,6 +1,6 @@
 # Security and privacy
 
-Letterbox Desk is for a trusted Mac account and local network. Agent Bell is an optional
+Letterbox Desk is for a trusted Mac account and local network. Letterbox Bell is an optional
 paired iPhone client. There is no hosted Desk service, account or relay.
 
 ## Pairing and network scope
@@ -36,10 +36,10 @@ Mac Dictation is the operating system's service, invoked through its Edit menu. 
 location and privacy controls follow macOS settings; Desk does not implement a separate Mac
 speech service. The editor preserves provisional marked text while it is being recognized.
 
-Agent Bell uses Apple's Speech framework. It prefers on-device recognition where the phone
+Letterbox Bell uses Apple's Speech framework. It prefers on-device recognition where the phone
 and language support it; the settings allow Apple's online recognition, and recognition can
 use that service where on-device speech is unavailable. The app indicates which is in use.
-Online recognition can send audio to Apple. Review the text before Send. Desk and Agent Bell
+Online recognition can send audio to Apple. Review the text before Send. Desk and Letterbox Bell
 do not store audio recordings in their own files, and recognition does not send a letter by
 itself. Apple's speech behavior is separate from the local phone-to-Mac transport.
 

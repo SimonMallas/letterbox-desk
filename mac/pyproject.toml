@@ -1,7 +1,7 @@
 [project]
 name = "bell-desk"
 version = "0.1.0"
-description = "Letterbox Desk: Mac conversations for Agent Letterbox, with optional Agent Bell on iPhone"
+description = "Letterbox Desk: Mac conversations for Agent Letterbox, with optional Letterbox Bell on iPhone"
 requires-python = ">=3.11"
 dependencies = ["cryptography==48.0.0"]
 
