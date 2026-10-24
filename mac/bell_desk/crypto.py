@@ -19,6 +19,8 @@ from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption,
 
 COMMIT_LABEL = b"belldesk-commit-v1"
 PAIR_LABEL = b"belldesk-pair-v2"
+CONFIRM_LABEL = b"belldesk-confirm-v1"
+CONFIRMED_LABEL = b"belldesk-confirmed-v1\n"
 NONCE_LEN = 16
 AUTH_INFO = b"belldesk-v1-auth"
 EVENT_LABEL = b"belldesk-v1-event\n"
@@ -52,9 +54,29 @@ def commitment(server_pub: bytes, device_pub: bytes, server_nonce: bytes) -> byt
     return hashlib.sha256(COMMIT_LABEL + server_pub + device_pub + server_nonce).digest()
 
 
-def pairing_code(server_pub: bytes, device_pub: bytes, device_nonce: bytes, server_nonce: bytes) -> str:
-    digest = hashlib.sha256(PAIR_LABEL + server_pub + device_pub + device_nonce + server_nonce).digest()
+def _six_digits(label: bytes, server_pub: bytes, device_pub: bytes, device_nonce: bytes, server_nonce: bytes) -> str:
+    digest = hashlib.sha256(label + server_pub + device_pub + device_nonce + server_nonce).digest()
     return f"{int.from_bytes(digest[:4], 'big') % 1_000_000:06d}"
+
+
+def pairing_code(server_pub: bytes, device_pub: bytes, device_nonce: bytes, server_nonce: bytes) -> str:
+    """Code A: the phone shows it, the person types it on the Mac."""
+    return _six_digits(PAIR_LABEL, server_pub, device_pub, device_nonce, server_nonce)
+
+
+def confirm_code(server_pub: bytes, device_pub: bytes, device_nonce: bytes, server_nonce: bytes) -> str:
+    """Code B: the Mac shows it after approving, the person types it on the phone. Only the real Mac can show it."""
+    return _six_digits(CONFIRM_LABEL, server_pub, device_pub, device_nonce, server_nonce)
+
+
+def confirm_proof(key: bytes) -> str:
+    """Sent by the phone once code B matched; the Mac accepts signed requests only after it."""
+    return b64e(hmac.new(key, CONFIRM_LABEL, hashlib.sha256).digest())
+
+
+def confirm_ack(key: bytes, pair_id: str, device_id: str) -> str:
+    """The Mac's answer to that proof, bound to this pairing: the phone saves nothing without it."""
+    return b64e(hmac.new(key, CONFIRMED_LABEL + f"{pair_id}\n{device_id}".encode(), hashlib.sha256).digest())
 
 
 def usable_peer(own_private: X25519PrivateKey, peer_pub: bytes) -> bool:

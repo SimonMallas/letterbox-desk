@@ -95,6 +95,9 @@ final class MenuBar: NSObject, NSMenuDelegate, NSWindowDelegate {
         phone.target = self
         phone.state = phoneEnabled ? .on : .off
         menu.addItem(phone)
+        let pair = NSMenuItem(title: "Pair a phone\u{2026}", action: #selector(pairPhone), keyEquivalent: "")
+        pair.target = self
+        menu.addItem(pair)
         if let phoneNotice { menu.addItem(plain(phoneNotice)) }
         menu.addItem(.separator())
         let tip = "Read-only counts from the Letterbox\u{2019}s own team check. They don\u{2019}t show whether an agent is at its desk: a session that is offline still receives mail."
@@ -128,7 +131,8 @@ final class MenuBar: NSObject, NSMenuDelegate, NSWindowDelegate {
             model.seats = message["seats"] as? [String] ?? []
             phones = message["phones"] as? Int ?? 0
             phoneEnabled = message["phone"] as? Bool ?? false
-            if let notice = message["phone_notice"] as? String { phoneNotice = notice }
+            // A notice answers one action; the next state without one (within 30 seconds) clears it.
+            phoneNotice = message["phone_notice"] as? String
         case "mail":
             if let mail = try? decoder.decode(MailMessage.self, from: data) {
                 if mail.inbox != model.inbox { model.inbox = mail.inbox }
@@ -179,6 +183,8 @@ final class MenuBar: NSObject, NSMenuDelegate, NSWindowDelegate {
     @objc func openCompose() { model.chooseAgent(nil); showDesk(.compose) }
 
     @objc func togglePhone() { write(["phone_toggle": true]) }
+
+    @objc func pairPhone() { write(["pair_phone": true]) }
 
     func showDesk(_ section: DeskSection) {
         guard demo || !model.seats.isEmpty else { return }

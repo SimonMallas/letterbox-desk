@@ -18,9 +18,11 @@ ios/Tools/check-transcript.sh
 
 The Python tests create scratch state, mailboxes and helpers. The native checker exercises
 real text views and model behavior with simulated Dictation-menu actions; it does not start
-OS speech recognition. The iOS checks compile shared sources for macOS: one pins crypto,
-event parsing and ring-policy behavior, the other checks transcript assembly. They do not
-replace an iOS app build or a live Dictation test.
+OS speech recognition. It does open a small window and bring it to the front for a moment,
+so run it when you aren't typing in another app. The iOS checks compile shared sources for
+macOS: one pins crypto, event parsing, the listener client's limits and ring-policy behavior,
+the other checks transcript assembly. They do not replace an iOS app build or a live
+Dictation test.
 
 Optional integration checks skip unless explicitly configured:
 

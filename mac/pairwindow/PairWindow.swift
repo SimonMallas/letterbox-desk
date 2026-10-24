@@ -27,7 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let content: NSViewController
-        if let result = Args.result {
+        if let code = Args.confirm {
+            content = NSHostingController(rootView: ConfirmView(phone: Args.phone, code: code))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 120) { exit(0) }
+        } else if let result = Args.result {
             let paired = result == "done"
             content = NSHostingController(rootView: ResultView(phone: Args.phone, paired: paired) { exit(0) })
             DispatchQueue.main.asyncAfter(deadline: .now() + (paired ? 2.5 : 30)) { exit(0) }
@@ -79,6 +82,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if Args.demo != nil {
             let model = DeskModel(); model.loadFixture()
             renderer = ImageRenderer(content: AnyView(DeskView(model: model).frame(width: 960, height: 760)))
+        } else if let code = Args.confirm {
+            renderer = ImageRenderer(content: AnyView(ConfirmView(phone: Args.phone, code: code)))
         } else if let result = Args.result {
             renderer = ImageRenderer(content: AnyView(ResultView(phone: Args.phone, paired: result == "done")))
         } else {

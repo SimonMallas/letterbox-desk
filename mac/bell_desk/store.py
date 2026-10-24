@@ -3,10 +3,13 @@
 import fcntl
 import json
 import os
+import secrets
 import threading
 import time
 
 from . import crypto
+
+LOG_MAX = 1_000_000  # bytes; the log then moves to bell-desk.log.1, replacing the older one
 
 
 def summarize(request_id: str, results: list) -> dict:
@@ -30,14 +33,25 @@ def summarize(request_id: str, results: list) -> dict:
 
 
 def _write_private(path: str, data: bytes):
-    tmp = f"{path}.tmp-{os.getpid()}"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    """A whole file only this user can read: written to a new temporary file (never an existing one or a link),
+    synced, renamed over the old one, and the folder synced so the rename survives a crash."""
+    tmp = f"{path}.tmp-{os.getpid()}-{secrets.token_hex(4)}"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
-        os.write(fd, data)
-        os.fsync(fd)
+        try:
+            os.write(fd, data)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, path)
+    except OSError:
+        os.unlink(tmp)
+        raise
+    folder = os.open(os.path.dirname(path), os.O_RDONLY)
+    try:
+        os.fsync(folder)
     finally:
-        os.close(fd)
-    os.replace(tmp, path)
+        os.close(folder)
 
 
 class State:
@@ -215,6 +229,21 @@ class State:
         order = sorted(range(len(items)), key=lambda i: (items[i]["at"], i), reverse=True)
         return [items[i] for i in order[:limit]]
 
+    def awaiting_choice(self, sent=None) -> set:
+        """(request_id, seat) copies the person still has to decide about: the Mac couldn't confirm them or never
+        tried, and nothing was sent again for them since. They stay on screen whatever Keep and the Sent limit say.
+        sent is sent_letters(limit=None) when the caller already has it."""
+        seen, waiting = set(), set()
+        for item in self.sent_letters(limit=None) if sent is None else sent:  # newest first, so each chain's latest attempt comes first
+            for result in item["results"]:
+                chain = item.get("retry_of") or f"{item['request_id']}/{result.get('to')}"
+                if chain in seen:
+                    continue
+                seen.add(chain)
+                if result.get("status") in ("not_confirmed", "not_attempted"):
+                    waiting.add((item["request_id"], result.get("to")))
+        return waiting
+
     def sent_letter(self, request_id: str):
         with self.lock:
             entry = self._requests.get(request_id)
@@ -253,11 +282,18 @@ class State:
 
     def log(self, message: str):
         line = time.strftime("%Y-%m-%dT%H:%M:%S") + " " + message + "\n"
-        fd = os.open(self.path("bell-desk.log"), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        try:
-            os.write(fd, line.encode())
-        finally:
-            os.close(fd)
+        path = self.path("bell-desk.log")
+        with self.lock:
+            try:
+                if os.stat(path, follow_symlinks=False).st_size >= LOG_MAX:
+                    os.replace(path, path + ".1")
+            except FileNotFoundError:
+                pass
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            try:
+                os.write(fd, line.encode())
+            finally:
+                os.close(fd)
 
     def desk_view(self):
         try:

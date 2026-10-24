@@ -7,8 +7,14 @@
   "server_nonce": "UFFSU1RVVldYWVpbXF1eXw==",
   "commitment": "YeUXWnGL5Thk9+fNVLdjXaePtWHOcQMnEST8b5D9b9I=",
   "pairing_code": "461702",
+  "confirm_code": "704263",
   "device_id": "a0289810032eb417",
   "auth_key": "sDMpNGD3emfYHxLi01Wc6rH25ESq43kKLeqBHABkx6k=",
+  "confirm_proof": "XjaVWgp6dpSpKHxjUF5l+xeYpdSxUSazInKtE/7Zak4=",
+  "confirm_ack": {
+    "pair_id": "0123456789abcdef0123456789abcdef",
+    "ack": "OsulpI/ThRz6B/hDvjJUGWAa4EGM0EdlpiEUVQi2uqQ="
+  },
   "request": {
     "method": "POST",
     "path": "/v1/dictation",
@@ -26,9 +32,23 @@
     "sig": "0exfCbxRFTcOG1xHwn0A8cWmR1O5JrtR9x5o5LajVl4="
   },
   "event": {
-    "json": "{\"type\":\"mail\",\"stream\":\"00112233445566778899aabbccddeeff\",\"seq\":1,\"to\":\"alice\",\"from\":\"bob\",\"letter_type\":\"result\",\"id\":\"2026-10-07T082113-bob-result-demo-5c1e8a20\",\"priority\":\"now\",\"ts\":\"2026-10-07T08:21:13Z\"}",
-    "sig": "FoomcHY7lDYyS9cm6pyrvvhzXZp4tt2kvbwMA+WN5Ac="
+    "json": "{\"type\":\"mail\",\"stream\":\"00112233445566778899aabbccddeeff\",\"seq\":1,\"to\":\"alice\",\"from\":\"bob\",\"letter_type\":\"result\",\"id\":\"2026-10-07T082113-5c1e8a20\",\"priority\":\"now\",\"ts\":\"2026-10-07T08:21:13Z\"}",
+    "sig": "YiCjP1EVvZT9O9l0nMQ8HOqcCrMmtK2trNVLV84gJgk="
   },
+  "phone_letter_ids": [
+    {
+      "id": "2026-10-07T082113-bob-result-prod-database-is-down-5c1e8a20",
+      "phone": "2026-10-07T082113-5c1e8a20"
+    },
+    {
+      "id": "2026-10-23T153358-0a1b2c3d-u0123456789ab",
+      "phone": "2026-10-23T153358-0912c62b"
+    },
+    {
+      "id": "no-time-here",
+      "phone": "b916d8c6"
+    }
+  ],
   "response": {
     "method": "POST",
     "path": "/v1/dictation",

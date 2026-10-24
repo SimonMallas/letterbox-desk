@@ -5,11 +5,20 @@ paired iPhone client. There is no hosted Desk service, account or relay.
 
 ## Pairing and network scope
 
-Pairing uses X25519, a committed random nonce and a six-digit numeric comparison. Type the
-code shown on the phone into the Mac prompt; refuse a code you did not request or cannot
-compare. Pairing needs a person's approval. The derived key authenticates requests, replies
-and event streams with HMAC-SHA256. The phone pins the Mac's public key and verifies signed
-answers before believing a send result. See [PROTOCOL.md](PROTOCOL.md) for exact bytes.
+Pairing is closed until you open it on the Mac (**Pair a phone…** in the menu bar,
+`bell-desk pair`, or turning the phone on with none paired), and then stays open for three
+minutes. It uses X25519, committed random nonces and two six-digit codes. Type the code shown
+on the phone into the Mac; the Mac then shows a second code, which you type on the phone.
+Each code can only be right on the device the other one really reached, so a phone can't be
+paired with a Mac you aren't looking at, and a Mac won't keep a phone you didn't approve.
+Refuse any code you did not request. While pairing is open, another device on the network can
+keep the Mac busy, or cancel an attempt it overhears, so your phone has to try again; without
+both codes it can't pair itself.
+
+The derived key authenticates requests, replies and event streams with HMAC-SHA256. The phone
+pins the Mac's public key and verifies signed answers before believing a send result. It never
+re-pairs by itself: if the Mac's key changes or the Mac stops recognising it, the phone stops
+sending and waits for you to tap **Pair again**. See [PROTOCOL.md](PROTOCOL.md) for exact bytes.
 
 Traffic uses plain HTTP, not TLS: signatures authenticate it but do **not encrypt** text or
 metadata from observers on the network. Use a trusted LAN. The Mac listener defaults to
@@ -24,8 +33,9 @@ against another process running as you. Unpair a lost phone from Desk.
 
 ## What reaches the phone
 
-Incoming mail events contain envelope metadata: sender, recipient, letter type, id, time,
-priority and whether it is addressed to `desk`. They contain no incoming letter body,
+Incoming mail events contain envelope metadata: sender, recipient, letter type, time,
+priority, whether it is addressed to `desk`, and a short id made of the letter's time and its
+8-character token, never its subject. They contain no incoming letter body,
 picture bytes or incoming picture path. The Mac conversation window does read local bodies
 for display. Text dictated and confirmed on the phone is sent to the Mac; send results and
 agent names are returned to the phone.
@@ -68,7 +78,10 @@ or picture files. Local send records can contain text and picture references.
 ## Helper and delivery decisions
 
 The public `letterbox` helper is SHA256-pinned at setup. A changed helper is refused until the
-person deliberately verifies and pins the intended version. Doorbell settings are parsed as
+person deliberately verifies and pins the intended version. The pin covers the helper file itself,
+checked before each send. It catches an unexpected change, but it doesn't defend against something
+already running as you, which could change the helper, the files it loads, or the Desk itself.
+Doorbell settings are parsed as
 text, never sourced as shell code; a changed pinned doorbell adapter is omitted, so a letter
 may arrive without ringing. The selected roster limits whom Desk can write to.
 

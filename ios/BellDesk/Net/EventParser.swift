@@ -30,10 +30,15 @@ enum BellEvent: Equatable {
 /// Splits a byte stream into lines on "\n", dropping a trailing "\r".
 /// Works on raw bytes so the JSON that was signed is the JSON that is verified.
 struct LineSplitter {
+    /// The longest event is `hello`: under 1 KB plus about 35 bytes per seat. A longer line drops the
+    /// stream as malformed before it is verified, so no host can grow this buffer without limit.
+    static let maxLine = 64 * 1024
+
     private var buffer = Data()
 
-    mutating func feed(_ byte: UInt8) -> Data? {
+    mutating func feed(_ byte: UInt8) throws -> Data? {
         guard byte == 0x0A else {
+            guard buffer.count < Self.maxLine else { throw EventVerifier.Failure.malformed }
             buffer.append(byte)
             return nil
         }

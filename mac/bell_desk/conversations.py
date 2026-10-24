@@ -1,5 +1,6 @@
 """Desk-local conversation projection. Letter files and phone state stay unchanged."""
 import datetime
+import os
 import time
 
 from .watcher import read_letter_text
@@ -11,34 +12,56 @@ class Conversations:
     def __init__(self, app, mail):
         self.app, self.mail = app, mail
         self.viewing, self.visible = None, set()
+        self.texts = {}
 
-    def rows(self, seat):
+    def rows(self, seat, sent=None, waiting=None):
+        """Every message with one agent, oldest first. Letter text and picture checks are left to shown(),
+        so a refresh reads only what is on screen."""
         incoming = []
         with self.mail.lock:
             files = self.mail._files()
             for name, path in files.items():
                 r = self.mail._record(name, path)
                 if r and r['from'] == seat:
-                    incoming.append({**self.mail._decorate(r), 'direction': 'in', 'text': read_letter_text(path),
+                    incoming.append({**self.mail._decorate(r), 'direction': 'in', 'path': path,
                                      'at': self.timestamp(r['ts']), 'via': ''})
         incoming.sort(key=lambda r: (r["at"], r["id"]))
-        for item in reversed(self.app.state.sent_letters(limit=None)):
+        sent = self.app.state.sent_letters(limit=None) if sent is None else sent
+        waiting = self.app.state.awaiting_choice(sent) if waiting is None else waiting
+        for item in reversed(sent):
             part = next((r for r in item['results'] if r.get('to') == seat), None)
             if part:
                 incoming.append({'id': item['request_id'] + '/' + seat, 'from': 'desk', 'direction': 'out',
                                  'text': part.get('text', self.app._copy_text(item.get('text') or '', seat,
                                          [r['to'] for r in item['results']])), 'at': item['at'], 'ts': '',
                                  'read': True, 'status': part['status'], 'request_id': item['request_id'],
-                                 'via': item['via'], 're': part.get('re', item['re'])})
-        for row in incoming:
-            # Only our recorded outgoing copies carry trusted picture references.
-            if row['direction'] == 'out' and '\nDesk picture: ' in row['text']:
-                try:
-                    record = json.loads(row['text'].rsplit('\nDesk picture: ', 1)[1])
-                    row['picture_status'] = attachments.inspect_copy(self.app.state.config(), self.app.bus_dir, record)
-                except (ValueError, TypeError):
-                    row['picture_status'] = 'missing'
+                                 'via': item['via'], 're': part.get('re', item['re']),
+                                 'needs_choice': (item['request_id'], seat) in waiting})
         return sorted(incoming, key=lambda r: r['at'])
+
+    def shown(self, row, texts):
+        """A row as the window gets it. A letter's text is re-read only when its file changed since the last
+        refresh; texts collects what this refresh showed."""
+        row = dict(row)
+        if row['direction'] == 'in':
+            path = row.pop('path')
+            try:
+                info = os.stat(path, follow_symlinks=False)
+                key = (path, info.st_mtime_ns, info.st_size)
+            except OSError:
+                key = None
+            text = self.texts.get(key) if key else None
+            row['text'] = text if text is not None else read_letter_text(path)
+            if key:
+                texts[key] = row['text']
+        # Only our recorded outgoing copies carry trusted picture references.
+        elif '\nDesk picture: ' in row['text']:
+            try:
+                record = json.loads(row['text'].rsplit('\nDesk picture: ', 1)[1])
+                row['picture_status'] = attachments.inspect_copy(self.app.state.config(), self.app.bus_dir, record)
+            except (ValueError, TypeError):
+                row['picture_status'] = 'missing'
+        return row
 
     @staticmethod
     def timestamp(value):
@@ -57,14 +80,18 @@ class Conversations:
             done = {}
         cutoff = time.time() - keep * 86400
         result = []
+        sent = self.app.state.sent_letters(limit=None)
+        waiting, texts = self.app.state.awaiting_choice(sent), {}
         for seat in self.app.seats:
-            rows = self.rows(seat)
+            rows = self.rows(seat, sent, waiting)
             latest = next((r['id'] for r in reversed(rows) if r['direction'] == 'in'), '')
             archived = done.get(seat)
             hidden = isinstance(archived, list) and all(r['id'] in archived for r in rows)
             result.append({'seat': seat, 'latest': latest, 'last_at': rows[-1]['at'] if rows else 0, 'done': hidden,
                            'unread': sum(not r['read'] for r in rows if r['direction'] == 'in'),
-                           'messages': [r for r in rows if r['at'] >= cutoff or not r['read'] or (seat == self.viewing and r['id'] in self.visible)]})
+                           'messages': [self.shown(r, texts) for r in rows if r['at'] >= cutoff or not r['read'] or (seat == self.viewing and r['id'] in self.visible)
+                                        or (r.get('needs_choice') and r['id'] not in (archived if isinstance(archived, list) else []))]})
+        self.texts = texts
         cfg = self.app.state.config()
         return {'type': 'conversations', 'conversations': result, 'keep': keep,
                 'picture_readers': [seat for seat in self.app.seats if attachments.verified(cfg, self.app.bus_dir, seat)],
@@ -79,18 +106,14 @@ class Conversations:
             self.viewing, self.visible = None, set()
             done = view.setdefault('done', {})
             done[seat] = [r['id'] for r in self.rows(seat)]
-            for r in self.rows(seat):
-                if r['direction'] == 'in':
-                    self.mail.mark_read(r['id'])
+            self.mail.mark_read(*(r['id'] for r in self.rows(seat) if r['direction'] == 'in'))
         elif message.get('action') == 'restore' and seat in self.app.seats:
             view.setdefault('done', {}).pop(seat, None)
         elif message.get('action') == 'read' and seat in self.app.seats:
             if self.viewing != seat:
                 self.viewing, self.visible = seat, set()
             self.visible.update(r['id'] for r in self.rows(seat) if not r['read'])
-            for r in self.rows(seat):
-                if r['direction'] == 'in':
-                    self.mail.mark_read(r['id'])
+            self.mail.mark_read(*(r['id'] for r in self.rows(seat) if r['direction'] == 'in'))
         elif message.get('action') == 'settings':
             if type(message.get('keep')) is int:
                 view['keep'] = max(1, min(3650, message['keep']))

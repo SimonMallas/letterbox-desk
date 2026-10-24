@@ -26,7 +26,7 @@ Each agent has one conversation that keeps rolling, like a chat. The Desk opens 
 - **The sidebar** lists your agents, with a count of unread letters. Click one to open its conversation.
 - **Their letters are on the left, yours on the right.** **NEW** marks where the unread letters start.
 - **To reply,** write in the box under the conversation and press **Send** (or ⌘↩). It goes to that agent, exactly as you typed it, as a reply to its latest letter. The conversation stays open.
-- **To include other agents,** turn on their buttons in the row along the top. Each of them gets a new letter with this message only, not the conversation, plus one line naming who else got it. **What goes out** says exactly who gets what before you press Send.
+- **To include other agents,** turn on their buttons in the row along the top. Each of them gets a new letter with this message only, not the conversation, plus one line naming who else got it. **What goes out** shows who gets what before you press Send, that line included.
 - **To speak instead of typing,** press the **microphone** in the corner of the box and talk. Press it again to stop. It lights up while it is listening. Your Mac's own Dictation shortcut works too. The words appear in the box for you to check before you send.
 - **To send a picture,** drag a picture or screenshot into the box, or paste it with ⌘V. PNG or JPEG, up to 10 MB. It shows under the box with **Remove** beside it. The agent gets a copy of the picture with your letter.
 - **Done — keep files** clears the conversation from the Desk when you've finished. The letters stay on disk as your agents' record. **Show done** brings it back, and so does the agent's next letter.
@@ -53,6 +53,7 @@ Everything you've sent, with what happened to each copy:
 | In alice's inbox · doorbell rang | Delivered, and alice's window was nudged. |
 | In bob's inbox · the doorbell didn't ring | Delivered. bob will find it at the next inbox check. |
 | The Mac couldn't confirm it (it may have arrived). Not retried. | Unknown, so check before sending again. |
+| The Mac couldn't confirm it (it may have arrived). Sent again later. | That attempt's outcome. You sent it again, so look at the newer one. |
 | Not attempted | It never went out. Sending again is safe. |
 
 Nothing is ever sent again behind your back. **Send again…** always asks first, and warns you when the first copy may already be there.
@@ -72,7 +73,7 @@ When you install the Desk, it asks once: **Set up pictures for your agents?** Sa
 
 If an agent isn't set up yet (a new agent, say), the Desk won't send it a picture. It tells you, and offers two buttons: **Ask bob to set up pictures**, which sends that agent its check, and **Send without the picture**.
 
-To see where things stand: `bell-desk attachments status`. To set it up later, if you skipped it at install: `bell-desk attachments setup`.
+To see where things stand, run `mac/.venv/bin/bell-desk attachments status` in the folder you installed the Desk from. To set it up later, if you skipped it at install: `mac/.venv/bin/bell-desk attachments setup`.
 
 ### When something's off
 
@@ -82,7 +83,7 @@ To see where things stand: `bell-desk attachments status`. To set it up later, i
 | The Mac couldn't confirm it | Look in Sent. Send it again only if you're happy for it to maybe arrive twice. |
 | The microphone does nothing | Turn Dictation on in System Settings › Keyboard › Dictation, and check its microphone there. Then press the Desk's microphone again. |
 | "Pictures are not set up yet" | That agent hasn't answered its picture check. Press **Ask … to set up pictures**, or **Send without the picture**. |
-| The bell menu says the listener isn't running | Start the Desk again. `bell-desk service status` tells you whether it starts at login. |
+| The bell has gone from the menu bar | The Desk has stopped. In the folder you installed it from, run `mac/.venv/bin/bell-desk service install` to start it again. `mac/.venv/bin/bell-desk service status` tells you whether it is running. |
 
 ## Part two: Letterbox Bell
 
@@ -97,9 +98,9 @@ You don't need it to use the Desk. It adds ringing and voice input away from the
 
 ### Turning it on
 
-Tick **iPhone (Letterbox Bell)** in the Desk's bell menu, then open Bell on the phone. It finds your Mac on the Wi-Fi and shows six digits. Type them into the window that appears on your Mac. Both then say "Paired". You only do this once.
+Choose **Pair a phone…** in the Desk's bell menu, then open Bell on the phone. It finds your Mac on the Wi-Fi and shows six digits: type them into the window that appears on your Mac. The Mac then shows six digits of its own: type those on the phone. Both then say "Paired". You only do this once. Pairing stays open for three minutes after you choose **Pair a phone…**.
 
-![Pairing: the phone shows six digits, you type them into the Mac's six boxes, and both say Paired.](img/pairing.png)
+![Pairing: the phone shows six digits, you type them into the Mac's six boxes, the Mac shows six digits of its own, you type those on the phone, and both say Paired.](img/pairing.png)
 
 Unticking **iPhone (Letterbox Bell)** disconnects the phone entirely.
 
@@ -142,7 +143,10 @@ Press and hold **LETTERBOX BELL** at the top of the phone's screen.
 | You see | What to do |
 | --- | --- |
 | The phone doesn't ring | Check the Bell button on the Desk says **On**, and that Bell is open on the phone. |
-| The phone says "Mac offline" | Check the Desk's bell menu shows the listener running. If it doesn't, start the Desk again. |
+| The phone says "Mac offline" | Check the bell is in your Mac's menu bar and its menu says the listener is running. If the bell has gone, start the Desk again, as in [When something's off](#when-somethings-off). |
 | "Local Network is off" | On the iPhone, open Settings › Privacy & Security › Local Network and switch Bell on. |
-| The Mac didn't accept that code | Start again on the phone; it shows a new code. After a wrong code, pairing pauses for 30 seconds. |
+| The Mac didn't accept that code | Choose **Pair a phone…** again and start again on the phone; it shows a new code. After a wrong code, pairing pauses for 30 seconds. |
+| The phone says "Pairing isn't open" | Choose **Pair a phone…** in the Desk's bell menu. Pairing stays open for three minutes. |
+| The phone says "Nothing was paired" after you typed the Mac's code | The code didn't match twice. If your Mac never showed a code, the phone reached a different Mac: tap **Try again**. |
+| The phone says "Not your Mac" or "Not recognised" | Bell has stopped sending. If you reset Letterbox Desk, changed Mac or unpaired the phone, tap **Pair again**. Otherwise check the phone is on your usual Wi-Fi. |
 | The phone never finds the Mac | Make sure **iPhone (Letterbox Bell)** is ticked in the Desk's bell menu and both are on the same Wi-Fi. |

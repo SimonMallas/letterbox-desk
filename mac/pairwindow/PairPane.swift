@@ -21,7 +21,7 @@ struct PairView: View {
             HStack(spacing: 8) {
                 Step(number: "1", label: "Open Bell", state: -1)
                 Step(number: "2", label: "Enter code", state: 0)
-                Step(number: "3", label: "Done", state: 1)
+                Step(number: "3", label: "Confirm on phone", state: 1)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Enter the code")
@@ -100,6 +100,58 @@ struct PairView: View {
     }
 }
 
+/// Shown once the phone's code matched: the second code, which only this Mac can show, for the person to type on the phone.
+struct ConfirmView: View {
+    let phone: String
+    let code: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 8) {
+                Step(number: "1", label: "Open Bell", state: -1)
+                Step(number: "2", label: "Enter code", state: -1)
+                Step(number: "3", label: "Confirm on phone", state: 0)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Now type this on your phone")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(Palette.ink)
+                Text("\u{201C}\(phone)\u{201D} is asking for this Mac\u{2019}s code. Pairing finishes when it matches.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 10) {
+                ForEach(Array(code.enumerated()), id: \.offset) { _, digit in
+                    Text(String(digit))
+                        .font(.system(size: 28, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: 56, height: 62)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Palette.raised))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.line, lineWidth: 1))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Code \(code.map(String.init).joined(separator: " "))")
+            HStack(alignment: .top, spacing: 10) {
+                Text("!").font(.system(size: 12, weight: .bold)).foregroundStyle(Palette.warm)
+                Text("Type it only on your own phone. Nothing is paired until your phone accepts it.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Palette.warm.opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.warm.opacity(0.45), lineWidth: 1))
+        }
+        .padding(28)
+        .frame(width: 460)
+        .background(Palette.ground)
+    }
+}
+
 struct ResultView: View {
     let phone: String
     let paired: Bool
@@ -110,7 +162,7 @@ struct ResultView: View {
             HStack(spacing: 8) {
                 Step(number: "1", label: "Open Bell", state: -1)
                 Step(number: "2", label: "Enter code", state: paired ? -1 : 0, accent: Palette.warm)
-                Step(number: "3", label: "Done", state: paired ? 0 : 1, accent: Palette.ok)
+                Step(number: "3", label: "Confirm on phone", state: paired ? 0 : 1, accent: Palette.ok)
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(paired ? "Paired \u{2713}" : "That code didn\u{2019}t match")
@@ -118,7 +170,7 @@ struct ResultView: View {
                     .foregroundStyle(paired ? Palette.ok : Palette.ink)
                 Text(paired
                      ? "Letterbox Desk is paired with \u{201C}\(phone)\u{201D}. Your agents\u{2019} urgent mail will ring there."
-                     : "Nothing was paired. Start again on the phone: it will show a new code.")
+                     : "Nothing was paired. To try again, choose Pair a phone\u{2026} in the menu bar, then start again on the phone.")
                     .font(.system(size: 13))
                     .foregroundStyle(Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)

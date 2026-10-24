@@ -1,5 +1,6 @@
 """The phone-facing HTTP service. PROTOCOL.md is the contract."""
 
+import hashlib
 import hmac
 import json
 import os
@@ -20,16 +21,23 @@ from .store import summarize
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
 PAIR_ID_RE = re.compile(r"^[0-9a-f]{32}$")
-PAIR_NONCE_RE = re.compile(r"^/v1/pair/([0-9a-f]{32})/nonce$")
-ENVELOPE_ID_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._:-]{0,127}$")
+PAIR_STEP_RE = re.compile(r"^/v1/pair/([0-9a-f]{32})/(nonce|confirm|abandon)$")
+LETTER_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{6}")
+TOKEN_RE = re.compile(r"^[0-9a-f]{8}$")
+# The Letterbox SPEC allows ids of 1-243 characters; the watcher uses the same rule, so nothing rings unseen.
+ENVELOPE_ID_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._:-]{0,242}$")
 BIDI_CONTROLS = set("‪‫‬‭‮⁦⁧⁨⁩")
 MAX_BODY = 16 * 1024
 MAX_TEXT = 2000
 CLOCK_SKEW = 120
 NONCE_TTL = 600
-PAIR_WINDOW = 120
-MAX_PENDING_PAIRS = 1
+PAIR_OPEN = 180       # how long "Pair a phone…" keeps pairing open
+NONCE_DEADLINE = 10   # a request that hasn't sent its nonce by then lets go of its slot
+PAIR_WINDOW = 120     # time to type code A once the phone shows it
+CONFIRM_WINDOW = 120  # time for the phone to prove code B once code A matched
+MAX_PENDING_PAIRS = 3
 PAIR_COOLDOWN = 30
+PAIR_FORGET = 600    # a finished attempt is kept this long, so a phone still asking sees how it ended
 NEVER_RAN = {"helper_changed", "helper_unavailable"}
 
 
@@ -47,6 +55,19 @@ def clean_text(text):
     return text, None
 
 
+def code_digits(text) -> str:
+    """The digits a person typed, in any script, as ASCII: a full-width 1 is a 1, and nothing else counts."""
+    return "".join(str(unicodedata.decimal(ch)) for ch in (text or "") if unicodedata.decimal(ch, None) is not None)
+
+
+def phone_letter_id(letter_id: str) -> str:
+    """What the phone may know of a letter: its time and the short token `letterbox` prints, never the subject."""
+    tail = letter_id.rsplit("-", 1)[-1]
+    token = tail if TOKEN_RE.match(tail) else hashlib.sha256(letter_id.encode()).hexdigest()[:8]
+    stamp = LETTER_TIME_RE.match(letter_id)
+    return f"{stamp.group(0)}-{token}" if stamp else token
+
+
 def clean_name(name) -> str:
     if not isinstance(name, str):
         return "phone"
@@ -56,7 +77,8 @@ def clean_name(name) -> str:
 
 class App:
     def __init__(self, state, helper, bus_dir: str, seats, console=print, ping_interval: float = 15.0,
-                 ask_for_code=None, tell=None, paired=None, wait_for_lock: bool = False, phone: bool = True):
+                 ask_for_code=None, tell=None, paired=None, confirmed=None, wait_for_lock: bool = False,
+                 phone: bool = True):
         self.state = state
         self.helper = helper
         self.bus_dir = bus_dir
@@ -66,6 +88,7 @@ class App:
         self.ask_for_code = ask_for_code
         self.tell = tell
         self.paired = paired
+        self.confirmed = confirmed
         state.lock_instance(wait=wait_for_lock,
                             waiting=lambda: console("another listener is running here; waiting for it to stop"))
         self.server_key = state.server_key() if phone else None
@@ -76,6 +99,7 @@ class App:
         self.send_lock = threading.Lock()
         self.stopping = threading.Event()
         self.cooldown_until = 0.0
+        self.pairing_until = 0.0
         self.pairings = {}
         self.subscribers = {}
         self.last_mail = None
@@ -92,32 +116,45 @@ class App:
             "version": "1",
             "name": self.name,
             "pairing_open": self.pairing_open(),
+            "pair_confirm": True,
             "server_pub": crypto.b64e(self.server_pub),
         }
 
     def open_pairing(self):
-        """Lift the pause that follows a failed attempt."""
+        """Open pairing for three minutes and lift the pause that follows a failed attempt."""
         self.cooldown_until = 0.0
-        self.console("[pair] pairing is open: open Bell on the phone")
+        self.pairing_until = time.time() + PAIR_OPEN
+        self.console("[pair] pairing is open for 3 minutes: open Bell on the phone")
 
     def pairing_open(self) -> bool:
-        """Always open, except for a short pause after a refused attempt, so a stranger can't keep popping dialogs."""
-        return time.time() >= self.cooldown_until
+        """Closed unless a person opened it on this Mac in the last three minutes, and paused after a refused
+        attempt, so a stranger on the network can't start pairings or pop dialogs at other times."""
+        now = time.time()
+        return now < self.pairing_until and now >= self.cooldown_until
 
-    def pair_request(self, device_pub: bytes, name: str):
+    @staticmethod
+    def _waiting(pairing: dict, now: float) -> bool:
+        """Still waiting for code A: the nonce must come within NONCE_DEADLINE, the answer within PAIR_WINDOW."""
+        if pairing["state"] != "pending":
+            return False
+        return now - pairing["created"] < (PAIR_WINDOW if pairing["device_nonce"] is not None else NONCE_DEADLINE)
+
+    def pair_request(self, device_pub: bytes, name: str, source: str = ""):
         with self.lock:
             if not self.phone_active:
                 return None
             now = time.time()
-            pending = [p for p in self.pairings.values() if p["state"] == "pending" and now - p["created"] < PAIR_WINDOW]
-            if len(pending) >= MAX_PENDING_PAIRS:
+            for old in [pid for pid, p in self.pairings.items() if now - p["created"] >= PAIR_FORGET]:
+                del self.pairings[old]
+            pending = [p for p in self.pairings.values() if self._waiting(p, now)]
+            if len(pending) >= MAX_PENDING_PAIRS or any(p["source"] == source for p in pending):
                 return None
             pair_id = secrets.token_hex(16)
             server_nonce = secrets.token_bytes(crypto.NONCE_LEN)
             self.pairings[pair_id] = {
-                "device_pub": device_pub, "name": name, "server_nonce": server_nonce,
-                "device_nonce": None, "code": None,
-                "state": "pending", "created": now, "device_id": None,
+                "device_pub": device_pub, "name": name, "server_nonce": server_nonce, "source": source,
+                "device_nonce": None, "code": None, "code_b": None, "key": None,
+                "state": "pending", "created": now, "approved_at": None, "device_id": None,
             }
         self.console(f"[pair] request {pair_id[:6]} from '{name}': waiting for the phone")
         return pair_id, crypto.commitment(self.server_pub, device_pub, server_nonce)
@@ -128,8 +165,11 @@ class App:
             if not self.phone_active:
                 return 503, {"error": "phone_off"}
             pairing = self.pairings.get(pair_id)
-            if pairing is None or pairing["state"] != "pending" or time.time() - pairing["created"] >= PAIR_WINDOW:
+            if pairing is None or not self._waiting(pairing, time.time()):
                 return 404, {"error": "unknown_pairing"}
+            # The nonce opens the pop-up, so it must arrive while pairing is still open, not just the request.
+            if not self.pairing_open():
+                return 403, {"error": "pairing_closed"}
             if pairing["device_nonce"] is not None:
                 return 409, {"error": "nonce_already_set"}
             pairing["device_nonce"] = device_nonce
@@ -141,17 +181,22 @@ class App:
             self.console(f"[pair] {pair_id[:6]} '{name}': type the phone's code into the pop-up on this Mac")
             threading.Thread(target=self._ask, args=(pair_id, name, code), name="pair-prompt", daemon=True).start()
         else:
-            self.console(f"[pair] {pair_id[:6]} '{name}': code {code[:3]} {code[3:]}")
-            self.console("[pair] if the phone shows the same code, type: approve   (otherwise: deny)")
+            self.console(f"[pair] {pair_id[:6]} '{name}': if it's your phone, type approve and the 6 digits it shows"
+                         "   (otherwise: deny)")
         return 200, {"server_nonce": crypto.b64e(server_nonce)}
 
     def _ask(self, pair_id: str, name: str, code: str):
-        digits = re.sub(r"\D", "", self.ask_for_code(name) or "")
+        typed = self.ask_for_code(name)
+        if typed is None:
+            self.console(f"[pair] {pair_id[:6]} '{name}': couldn't show the pop-up; type approve and the 6 digits the "
+                         "phone shows   (otherwise: deny)")
+            return
+        digits = code_digits(typed)
         if digits and hmac.compare_digest(digits, code):
             outcome = self._approve(pair_id)
             self.console(outcome)
             if outcome.startswith("approved") and self.paired:
-                self.paired(name)
+                self.paired(pair_id, name, self.pairings[pair_id]["code_b"])
             return
         refused = self._deny(pair_id, "the typed code did not match" if digits else "cancelled on the Mac")
         if refused and digits and self.tell:
@@ -162,25 +207,41 @@ class App:
             pairing = self.pairings.get(pair_id)
             if pairing is None:
                 return None
-            if pairing["state"] == "pending" and time.time() - pairing["created"] >= PAIR_WINDOW:
-                pairing["state"] = "expired"
+            self._expire(pairing, time.time())
             status = {"state": pairing["state"]}
-            if pairing["device_id"]:
+            if pairing["state"] in ("confirm", "confirmed"):
                 status["device_id"] = pairing["device_id"]
             return status
 
-    def decide(self, prefix: str, approve: bool) -> str:
-        """The listener-pane fallback: a person compares both screens and answers here."""
+    def _expire(self, pairing: dict, now: float):
+        if pairing["state"] == "pending" and not self._waiting(pairing, now):
+            pairing["state"] = "expired"
+        elif pairing["state"] == "confirm" and now - pairing["approved_at"] >= CONFIRM_WINDOW:
+            pairing["state"] = "expired"
+
+    def decide(self, prefix: str, approve: bool = False) -> str:
+        """The listener pane's deny. Approving takes the phone's code: see approve_code."""
+        if approve:
+            return "type approve and the 6 digits the phone shows"
         with self.lock:
             now = time.time()
-            pending = [pid for pid, p in self.pairings.items()
-                       if p["state"] == "pending" and now - p["created"] < PAIR_WINDOW and pid.startswith(prefix)]
+            pending = [pid for pid, p in self.pairings.items() if self._waiting(p, now) and pid.startswith(prefix)]
         if len(pending) != 1:
-            return "no single pending request matches; type 'approve <id>' with the id shown"
-        if not approve:
-            self._deny(pending[0], "denied in the listener")
-            return f"denied {pending[0][:6]}"
-        return self._approve(pending[0])
+            return "no single pending request matches; type 'deny <id>' with the id shown"
+        self._deny(pending[0], "denied in the listener")
+        return f"denied {pending[0][:6]}"
+
+    def approve_code(self, typed: str) -> str:
+        """The listener pane's approve: the person types the code their own phone shows, as in the pop-up, so a
+        waiting stranger can't be approved by a bare `approve`."""
+        digits = code_digits(typed)
+        with self.lock:
+            now = time.time()
+            match = [pid for pid, p in self.pairings.items() if self._waiting(p, now) and p["code"]
+                     and len(digits) == 6 and hmac.compare_digest(digits, p["code"])]
+        if len(match) != 1:
+            return "no waiting phone shows that code: check the 6 digits on your phone"
+        return self._approve(match[0])
 
     def _approve(self, pair_id: str) -> str:
         with self.lock:
@@ -188,24 +249,90 @@ class App:
                 return f"{pair_id[:6]} is no longer waiting"
             pairing = self.pairings.get(pair_id)
             now = time.time()
-            if pairing is None or pairing["state"] != "pending" or now - pairing["created"] >= PAIR_WINDOW:
+            if pairing is None or not self._waiting(pairing, now):
                 return f"{pair_id[:6]} is no longer waiting"
             if pairing["device_nonce"] is None:
                 return f"{pair_id[:6]} has no code yet: wait for the phone to show one"
             device_pub = pairing["device_pub"]
-            key = crypto.derive_key(self.server_key, device_pub, self.server_pub, device_pub,
-                                    pairing["device_nonce"], pairing["server_nonce"])
-            device_id = crypto.device_id(device_pub)
-            self.state.add_device(device_id, {
-                "name": pairing["name"],
-                "device_pub": crypto.b64e(device_pub),
-                "key": crypto.b64e(key),
-                "paired_at": int(now),
-            })
-            pairing["state"] = "approved"
-            pairing["device_id"] = device_id
-        self.state.log(f"pair approved {device_id} '{pairing['name']}'")
-        return f"approved: '{pairing['name']}' is device {device_id}"
+            pairing["key"] = crypto.derive_key(self.server_key, device_pub, self.server_pub, device_pub,
+                                               pairing["device_nonce"], pairing["server_nonce"])
+            pairing["code_b"] = crypto.confirm_code(self.server_pub, device_pub, pairing["device_nonce"],
+                                                    pairing["server_nonce"])
+            pairing["device_id"] = device_id = crypto.device_id(device_pub)
+            pairing["approved_at"] = now
+            # Code A matched; waiting for the phone to prove code B. Not "approved": a 1.0 phone would take
+            # that as paired and save a record this Mac never keeps.
+            pairing["state"] = "confirm"
+            code_b = pairing["code_b"]
+        self.state.log(f"pair approved {device_id} '{pairing['name']}': waiting for the phone to prove code B")
+        return (f"approved: '{pairing['name']}' (device {device_id}). "
+                f"Now type {code_b[:3]} {code_b[3:]} on the phone to finish pairing.")
+
+    def confirm_pairing(self, pair_id: str, proof: str):
+        """The phone matched code B, so it reached this Mac and not another: only now is it a paired device."""
+        with self.lock:
+            if not self.phone_active:
+                return 503, {"error": "phone_off"}
+            pairing = self.pairings.get(pair_id)
+            if pairing is None:
+                return 404, {"error": "unknown_pairing"}
+            now = time.time()
+            self._expire(pairing, now)
+            good = pairing["key"] is not None and hmac.compare_digest(
+                proof.encode(), crypto.confirm_proof(pairing["key"]).encode())
+            if pairing["state"] == "confirmed" and good:
+                return 200, self._confirmed(pair_id, pairing)
+            if pairing["state"] != "confirm":
+                return 404, {"error": "unknown_pairing"}
+            name, device_id = pairing["name"], pairing["device_id"]
+            answer = self._confirmed(pair_id, pairing)
+            if good:
+                self.state.add_device(device_id, {
+                    "name": name,
+                    "device_pub": crypto.b64e(pairing["device_pub"]),
+                    "key": crypto.b64e(pairing["key"]),
+                    "paired_at": int(now),
+                })
+                pairing["state"] = "confirmed"
+                self.pairing_until = 0.0
+            else:
+                pairing["state"] = "denied"
+                self.cooldown_until = now + PAIR_COOLDOWN
+        if not good:
+            self.console(f"[pair] {pair_id[:6]} refused: the phone's proof of code B was wrong")
+            self.state.log(f"pair refused {pair_id[:6]} '{name}': bad code B proof")
+            if self.confirmed:
+                self.confirmed(pair_id, name, False)
+            return 403, {"error": "bad_proof"}
+        self.console(f"[pair] '{name}' is paired (device {device_id})")
+        self.state.log(f"pair confirmed {device_id} '{name}'")
+        if self.confirmed:
+            self.confirmed(pair_id, name, True)
+        return 200, answer
+
+    @staticmethod
+    def _confirmed(pair_id: str, pairing: dict) -> dict:
+        """Signed with the new key, so a forged "confirmed" can't leave the phone believing it is paired."""
+        return {"state": "confirmed", "device_id": pairing["device_id"],
+                "ack": crypto.confirm_ack(pairing["key"], pair_id, pairing["device_id"])}
+
+    def abandon_pairing(self, pair_id: str):
+        """The phone gave up because code B didn't match. Best effort: an approval never becomes a device anyway
+        until the phone proves code B."""
+        with self.lock:
+            pairing = self.pairings.get(pair_id)
+            if pairing is None:
+                return 404, {"error": "unknown_pairing"}
+            self._expire(pairing, time.time())
+            if pairing["state"] != "confirm":
+                return 404, {"error": "unknown_pairing"}
+            pairing["state"] = "abandoned"
+            name = pairing["name"]
+        self.console(f"[pair] {pair_id[:6]} '{name}': the phone gave up, code B didn't match")
+        self.state.log(f"pair abandoned {pair_id[:6]} '{name}'")
+        if self.confirmed:
+            self.confirmed(pair_id, name, False)
+        return 200, {"state": "abandoned"}
 
     def _deny(self, pair_id: str, why: str) -> bool:
         with self.lock:
@@ -279,7 +406,7 @@ class App:
     def publish_mail(self, mail: dict):
         if not self.phone_active or not self.state.desk_view().get("rings", True):
             return
-        event = {"type": "mail", **mail}
+        event = {"type": "mail", **mail, "id": phone_letter_id(mail["id"])}
         with self.lock:
             self.last_mail = event
             targets = list(self.subscribers)
@@ -295,7 +422,7 @@ class App:
             open_streams = list(self.subscribers)
             self.subscribers.clear()
             for pairing in self.pairings.values():
-                if pairing["state"] == "pending":
+                if pairing["state"] in ("pending", "confirm"):
                     pairing["state"] = "expired"
         for q in open_streams:
             self._close(q)
@@ -539,15 +666,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(413, {"error": "too_large"})
         if self.path == "/v1/pair":
             return self._pair(body)
-        nonce_route = PAIR_NONCE_RE.match(self.path)
-        if nonce_route:
-            try:
-                device_nonce = crypto.b64d(json.loads(body)["device_nonce"])
-            except (ValueError, KeyError, TypeError):
-                return self._json(400, {"error": "bad_request", "reason": "bad_json"})
-            if len(device_nonce) != crypto.NONCE_LEN:
-                return self._json(400, {"error": "bad_request", "reason": "bad_nonce"})
-            return self._json(*self.app.pair_nonce(nonce_route.group(1), device_nonce))
+        step = PAIR_STEP_RE.match(self.path)
+        if step:
+            return self._pair_step(step.group(1), step.group(2), body)
         if self.path == "/v1/dictation":
             auth = self.app.authenticate(self.headers, "POST", self.path, body)
             if not auth:
@@ -566,12 +687,29 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": "bad_request", "reason": "bad_key"})
         if not self.app.pairing_open():
             return self._json(403, {"error": "pairing_closed"})
-        started = self.app.pair_request(device_pub, clean_name(payload.get("device_name")))
+        started = self.app.pair_request(device_pub, clean_name(payload.get("device_name")), self.client_address[0])
         if started is None:
             return self._json(429, {"error": "too_many_pairings"})
         pair_id, commitment = started
         return self._json(200, {"pair_id": pair_id, "server_pub": crypto.b64e(self.app.server_pub),
                                 "commitment": crypto.b64e(commitment)})
+
+    def _pair_step(self, pair_id: str, step: str, body: bytes):
+        if step == "abandon":
+            return self._json(*self.app.abandon_pairing(pair_id))
+        try:
+            value = json.loads(body)["device_nonce" if step == "nonce" else "proof"]
+            if step == "nonce":
+                value = crypto.b64d(value)
+            elif not isinstance(value, str):
+                raise TypeError
+        except (ValueError, KeyError, TypeError):
+            return self._json(400, {"error": "bad_request", "reason": "bad_json"})
+        if step == "confirm":
+            return self._json(*self.app.confirm_pairing(pair_id, value))
+        if len(value) != crypto.NONCE_LEN:
+            return self._json(400, {"error": "bad_request", "reason": "bad_nonce"})
+        return self._json(*self.app.pair_nonce(pair_id, value))
 
     def _events(self, auth: dict):
         q = queue.Queue(maxsize=64)

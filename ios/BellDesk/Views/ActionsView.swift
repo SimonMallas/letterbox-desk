@@ -40,8 +40,11 @@ struct ActionsView: View {
             if face == .failed || (face == .sent && !settledSent) {
                 ResolveButtons()
             }
-            if face == .pair && model.pairPhase == .failed && model.networkProblem == nil {
+            if face == .pair && (model.pairPhase == .failed || model.pairPhase == .wrongMacCode) && model.networkProblem == nil {
                 PillButton(title: "Try again", prominent: true) { model.retryPairing() }
+            }
+            if face == .offline && model.mistrust != nil {
+                PillButton(title: "Pair again", prominent: true) { model.pairAgain() }
             }
             if face == .sending && model.sendPhase == .checking {
                 PillButton(title: "Stop checking", prominent: false) { model.stopChecking() }

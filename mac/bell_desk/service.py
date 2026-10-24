@@ -42,17 +42,28 @@ def plist(program: list, state_dir: str) -> dict:
     }
 
 
+def installed_program(label: str = LABEL):
+    """The command line this user's login item runs, or None when there is no readable login item."""
+    try:
+        with open(plist_path(label), "rb") as handle:
+            program = plistlib.load(handle).get("ProgramArguments")
+    except (OSError, plistlib.InvalidFileException, AttributeError):
+        return None
+    return program if isinstance(program, list) else None
+
+
 def _launchctl(*args):
     return subprocess.run(["/bin/launchctl", *args], capture_output=True, text=True)
 
 
-def install(program: list, state_dir: str, phone: bool = True):
-    """(ok, message). ok only once launchd reports the listener running."""
+def install(program: list, state_dir: str, phone: bool = True, migrate_legacy: bool = True):
+    """(ok, message). ok only once launchd reports the listener running. An automatic update passes
+    migrate_legacy=False: it restarts this label only and never stops or removes an older login item."""
     log = os.path.join(state_dir, "listener.log")
     os.close(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600))
     _launchctl("bootout", f"gui/{os.getuid()}/{LABEL}")
-    # Only an explicit service install migrates the old login item.
-    _launchctl("bootout", f"gui/{os.getuid()}/{LEGACY_LABEL}")
+    if migrate_legacy:  # only an explicit service install migrates the old login item
+        _launchctl("bootout", f"gui/{os.getuid()}/{LEGACY_LABEL}")
     for _ in range(10):
         if lock_free(state_dir):
             break
@@ -60,10 +71,11 @@ def install(program: list, state_dir: str, phone: bool = True):
     else:
         return False, ("another Letterbox Desk listener is already running (not the login item). "
                        "Quit it first (type quit in its window), then run: bell-desk service install")
-    try:
-        os.remove(plist_path(LEGACY_LABEL))
-    except FileNotFoundError:
-        pass
+    if migrate_legacy:
+        try:
+            os.remove(plist_path(LEGACY_LABEL))
+        except FileNotFoundError:
+            pass
     path = plist_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as handle:

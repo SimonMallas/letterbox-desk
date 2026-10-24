@@ -10,8 +10,10 @@ enum Args {
     }
     static let phone = value("--phone") ?? "A phone"
     static let snapshot = value("--snapshot")
-    static let preset = value("--preset") ?? ""
+    /// Digits drawn into a snapshot picture only: a live window always starts empty, so a code is never one Enter away.
+    static let preset = snapshot == nil ? "" : value("--preset") ?? ""
     static let result = value("--result")
+    static let confirm = value("--confirm")
     static let menubar = CommandLine.arguments.contains("--menubar")
     static let hint = CommandLine.arguments.contains("--hint")
     static let demo = value("--demo")

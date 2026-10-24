@@ -12,6 +12,7 @@
 		130CE5CF2DC5747D7C387044 /* BellCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C6BC554CDD786A4EBDD9F48 /* BellCrypto.swift */; };
 		381CD95C93A9BF98B9C7B2C4 /* mouth_line.png in Resources */ = {isa = PBXBuildFile; fileRef = E507145C190523EA52D16EAD /* mouth_line.png */; };
 		53C5D6AF25286BD40769EE2A /* mouth_frown.png in Resources */ = {isa = PBXBuildFile; fileRef = B072DCE0B8398855E481C6AC /* mouth_frown.png */; };
+		5A2DDB0F6AB0ECDBC191EBE1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 963E66FDA0F1027DB6612376 /* PrivacyInfo.xcprivacy */; };
 		656EB00F8B4EC35AE49E7F72 /* ActionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234C814FD4C0F0B7197074A1 /* ActionsView.swift */; };
 		6A6C8B4B0A6348FDDED49B97 /* CharacterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2FCD2EE51879BD239D2ECA6 /* CharacterView.swift */; };
 		718184BBAFF49E475900A4F6 /* eye_L.png in Resources */ = {isa = PBXBuildFile; fileRef = 21A1FEA259C5227428806826 /* eye_L.png */; };
@@ -48,6 +49,7 @@
 		7682ACA9272318E2F38E52FE /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		7C6BC554CDD786A4EBDD9F48 /* BellCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BellCrypto.swift; sourceTree = "<group>"; };
 		810E37DC6E9F1CBB38E1E4BA /* BellDesk.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BellDesk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		963E66FDA0F1027DB6612376 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A83D93AB318D53F50FF6A86F /* BellDeskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BellDeskApp.swift; sourceTree = "<group>"; };
 		B072DCE0B8398855E481C6AC /* mouth_frown.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = mouth_frown.png; sourceTree = "<group>"; };
 		B0A2E2537F75EBF82BBCECA2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -106,6 +108,7 @@
 			isa = PBXGroup;
 			children = (
 				5CD15C76E17A530C5EADA0EF /* Assets.xcassets */,
+				963E66FDA0F1027DB6612376 /* PrivacyInfo.xcprivacy */,
 				0C085C39CCF254CDC6C76C28 /* App */,
 				7C76A34F2BB49C11342F7A3D /* Audio */,
 				AEB3E20C17841E3C1A198E7F /* Crypto */,
@@ -245,6 +248,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DB535E156E628F53F4BD8784 /* Assets.xcassets in Resources */,
+				5A2DDB0F6AB0ECDBC191EBE1 /* PrivacyInfo.xcprivacy in Resources */,
 				EB73C473D1F53AF5A616AFCE /* body.png in Resources */,
 				718184BBAFF49E475900A4F6 /* eye_L.png in Resources */,
 				DFFF97936E85EE818C5A0900 /* eye_R.png in Resources */,

@@ -6,9 +6,18 @@ import UIKit
 @MainActor
 final class AppModel: ObservableObject {
     enum Screen: Equatable { case welcome, pair, paired, idle, ring, listening, finishing, review, editing, sending, sent, failed }
-    enum Link: Equatable { case connecting, up, down }
+    enum Link: Equatable { case connecting, up, down, untrusted(Mistrust) }
+    /// Why the paired Mac can't be used right now. Bell never re-pairs by itself: only the person can (Pair again).
+    enum Mistrust: Equatable { case keyChanged, notRecognised }
     /// `failed` stops the pairing loop until the person taps Try again.
-    enum PairPhase: Equatable { case searching, unreachable(String), windowClosed, code(String), denied, expired, failed }
+    enum PairPhase: Equatable {
+        case searching, unreachable(String), windowClosed, tooOld, code(String), denied, expired, failed
+        /// The Mac accepted this phone's code; now the person types the code the Mac shows.
+        case confirm(retry: Bool)
+        case confirming
+        /// The code typed here didn't match the Mac's twice: nothing was paired.
+        case wrongMacCode
+    }
     enum SendPhase: Equatable { case posting, checking }
     enum NetworkProblem: Equatable { case noWiFi, localNetworkDenied }
 
@@ -144,7 +153,7 @@ final class AppModel: ObservableObject {
         case .welcome: return .welcome
         case .pair: return .pair
         case .paired: return .paired
-        case .idle: return link == .down ? .offline : .idle
+        case .idle: return link == .down || mistrust != nil ? .offline : .idle
         case .ring: return .ring
         case .listening: return .listening
         case .finishing: return .finishing
@@ -177,9 +186,25 @@ final class AppModel: ObservableObject {
         (screen == .idle || screen == .ring || sentIsSettled) && link == .up && !recipients.isEmpty
     }
 
-    var currentHost: String? {
-        if !hostOverride.isEmpty { return ListenerClient.normalizeHost(hostOverride) }
-        return discoveredHost ?? record?.host
+    var mistrust: Mistrust? {
+        if case .untrusted(let why) = link { return why }
+        return nil
+    }
+
+    /// Where to look for the paired Mac: the saved host first, a discovered one only as a fallback. Either is
+    /// used only if its key matches the pinned one and its event stream verifies.
+    private func linkHosts(_ record: PairingRecord) -> [String] {
+        if !hostOverride.isEmpty { return [ListenerClient.normalizeHost(hostOverride)] }
+        guard let found = discoveredHost, found != record.host else { return [record.host] }
+        return [record.host, found]
+    }
+
+    /// Where to pair: any Mac found, the one where the person opened pairing is the one that answers.
+    private var pairingHosts: [String] {
+        if !hostOverride.isEmpty { return [ListenerClient.normalizeHost(hostOverride)] }
+        var hosts: [String] = []
+        for host in [discoveredHost, record?.host].compactMap({ $0 }) where !hosts.contains(host) { hosts.append(host) }
+        return hosts
     }
 
     /// "a", "a and b", "3 agents", "everyone".
@@ -263,6 +288,12 @@ final class AppModel: ObservableObject {
         if let record, screen != .pair {
             link = .connecting
             linkTask = Task { await runLink(record) }
+        } else if let pendingConfirm, pairPhase == .confirming {
+            // Back mid-finish: send the same proof again; the Mac answers a repeat the same way.
+            let attempt = pairingAttempt
+            linkTask = Task { await finishPairing(pendingConfirm, attempt: attempt) }
+        } else if pendingConfirm != nil {
+            linkTask = nil  // waiting for the person to type the Mac's code
         } else {
             linkTask = Task { await runPairing() }
         }
@@ -273,25 +304,29 @@ final class AppModel: ObservableObject {
     private func runLink(_ record: PairingRecord) async {
         var backoff: Double = 1
         while !Task.isCancelled {
-            let host = currentHost ?? record.host
             streamWasLive = false
-            do {
-                let hello = try await client.hello(host: host)
-                guard Data(base64Encoded: hello.serverPub) == record.serverPub else {
-                    leaveForPairing(reason: "The Mac's key changed, so this phone has to pair again.")
-                    return
+            var mistrust: Mistrust?
+            for host in linkHosts(self.record ?? record) where !Task.isCancelled {
+                do {
+                    // `hello` is unsigned, so another key means only that this host isn't the paired Mac.
+                    let hello = try await client.hello(host: host)
+                    guard Data(base64Encoded: hello.serverPub) == record.serverPub else {
+                        mistrust = mistrust ?? .keyChanged
+                        continue
+                    }
+                    try await client.streamEvents(record: record, host: host) { [weak self] event in
+                        await self?.verified(event, from: host, for: record)
+                    }
+                } catch ListenerError.unauthorized {
+                    mistrust = .notRecognised
+                } catch {
+                    // Unreachable, or the stream dropped: try the next host, then back off.
                 }
-                try await client.streamEvents(record: record, host: host) { [weak self] event in
-                    await self?.verified(event, from: host)
-                }
-            } catch ListenerError.unauthorized {
-                leaveForPairing(reason: "The Mac no longer accepts this phone, so it has to pair again.")
-                return
-            } catch {
-                // Any other failure: reconnect with backoff.
+                if streamWasLive { break }
             }
             if Task.isCancelled { return }
             linkDropped()
+            if let mistrust, !streamWasLive { link = .untrusted(mistrust) }
             if streamWasLive { backoff = 1 }
             await pause(backoff)
             backoff = min(backoff * 2, 30)
@@ -299,8 +334,18 @@ final class AppModel: ObservableObject {
     }
 
     /// Every event here passed its signature check, so the host it came from is the paired Mac.
-    private func verified(_ event: BellEvent, from host: String) {
-        if case .hello = event { streamHost = host }
+    private func verified(_ event: BellEvent, from host: String, for linkRecord: PairingRecord) {
+        // A stream for a pairing the person has since forgotten or replaced changes nothing.
+        guard !Task.isCancelled, record?.deviceID == linkRecord.deviceID else { return }
+        if case .hello = event {
+            streamHost = host
+            // Signed by the pinned key: this is the paired Mac, so remember where it is now.
+            if var saved = record, saved.host != host {
+                saved.host = host
+                PairingStore.save(saved)
+                record = saved
+            }
+        }
         handle(event)
     }
 
@@ -352,7 +397,24 @@ final class AppModel: ObservableObject {
 
     // MARK: Pairing
 
-    private enum PairOutcome { case approved(String), denied, expired, lost }
+    /// Everything needed to finish pairing, in memory only, until the person types the code the Mac shows.
+    /// Nothing is saved, and the key is used for nothing but the proof, before that code matches.
+    private struct PendingConfirm {
+        let record: PairingRecord
+        let pairID: String
+        let macCode: String
+        var triesLeft: Int
+    }
+    private var pendingConfirm: PendingConfirm?
+    /// Bumped whenever the person leaves, forgets or restarts a pairing, so a late answer to an older
+    /// attempt changes nothing.
+    private var pairingAttempt = 0
+
+    /// The only way a paired phone starts pairing again: the person asks.
+    func pairAgain() {
+        guard mistrust != nil else { return }
+        leaveForPairing(reason: nil)
+    }
 
     private func leaveForPairing(reason: String?) {
         linkTask?.cancel()
@@ -365,30 +427,51 @@ final class AppModel: ObservableObject {
         link = .connecting
         pairPhase = .searching
         screen = .pair
+        pairingAttempt += 1
+        pendingConfirm = nil
         linkTask = Task { await runPairing() }
     }
 
     private func runPairing() async {
-        while !Task.isCancelled {
-            guard let host = currentHost else {
+        let attempt = pairingAttempt
+        // After every wait: a task for an attempt the person has since left must not touch the screen.
+        func current() -> Bool { !Task.isCancelled && attempt == pairingAttempt }
+        while current() {
+            let hosts = pairingHosts
+            guard let first = hosts.first else {
                 pairPhase = .searching
                 await pause(1)
                 continue
             }
-            let hello: Hello
-            do {
-                hello = try await client.hello(host: host)
-            } catch {
-                if Task.isCancelled { return }
-                pairPhase = .unreachable(host)
-                discovery.refresh()
+            var reached: Hello?
+            var open: (host: String, hello: Hello)?
+            for candidate in hosts {
+                guard let answer = try? await client.hello(host: candidate) else { continue }
+                reached = reached ?? answer
+                if answer.pairingOpen { open = (candidate, answer); break }
+            }
+            guard current() else { return }
+            // Where pairing can't go ahead, also try the next Mac found: with two on the Wi-Fi, the person may
+            // have opened pairing on the other one.
+            guard let reached else {
+                pairPhase = .unreachable(first)
+                discovery.next()
                 await pause(2)
                 continue
             }
-            macName = hello.name
-            guard hello.pairingOpen else {
+            guard let open else {
+                macName = reached.name
                 pairPhase = .windowClosed
+                discovery.next()
                 await pause(2)
+                continue
+            }
+            let host = open.host, hello = open.hello
+            macName = hello.name
+            guard hello.pairConfirm == true else {
+                pairPhase = .tooOld
+                discovery.next()
+                await pause(5)
                 continue
             }
 
@@ -400,6 +483,7 @@ final class AppModel: ObservableObject {
                 await pause(2)
                 continue
             }
+            guard current() else { return }
 
             // The Mac is committed to its nonce; only now pick ours and ask it to reveal.
             let deviceNonce = BellCrypto.randomBytes16()
@@ -407,13 +491,14 @@ final class AppModel: ObservableObject {
             do {
                 serverNonce = try await client.revealPairNonce(host: host, pairID: start.pairID, deviceNonce: deviceNonce)
             } catch ListenerError.http(let code, _) where code == 409 {
-                pairPhase = .failed
+                if current() { pairPhase = .failed }
                 return
             } catch {
-                if Task.isCancelled { return }
+                guard current() else { return }
                 await pause(2)
                 continue
             }
+            guard current() else { return }
             guard serverNonce.count == 16,
                   BellCrypto.commitment(serverPub: serverPub, devicePub: devicePub, serverNonce: serverNonce) == commitment else {
                 // Never show a code for a reveal that doesn't match the commitment.
@@ -423,7 +508,9 @@ final class AppModel: ObservableObject {
             pairPhase = .code(BellCrypto.pairingCode(serverPub: serverPub, devicePub: devicePub,
                                                      deviceNonce: deviceNonce, serverNonce: serverNonce))
 
-            switch await waitForApproval(host: host, pairID: start.pairID) {
+            let outcome = await waitForApproval(host: host, pairID: start.pairID)
+            guard current() else { return }
+            switch outcome {
             case .approved(let deviceID):
                 guard deviceID == BellCrypto.deviceID(devicePub: devicePub),
                       let key = try? BellCrypto.deriveKey(ownPrivate: privateKey, peerPub: serverPub,
@@ -432,17 +519,14 @@ final class AppModel: ObservableObject {
                     pairPhase = .failed
                     return
                 }
-                let newRecord = PairingRecord(host: host, deviceID: deviceID, key: key, serverPub: serverPub)
-                PairingStore.save(newRecord)
-                record = newRecord
-                pairReason = nil
-                link = .connecting
-                screen = .paired
-                noteActivity()
-                after("paired", 3) { [weak self] in
-                    if self?.screen == .paired { self?.screen = .idle }
-                }
-                linkTask = Task { await runLink(newRecord) }
+                // Approved by whoever answered. Only the Mac the person is looking at can show this code.
+                pendingConfirm = PendingConfirm(
+                    record: PairingRecord(host: host, deviceID: deviceID, key: key, serverPub: serverPub),
+                    pairID: start.pairID,
+                    macCode: BellCrypto.confirmCode(serverPub: serverPub, devicePub: devicePub,
+                                                    deviceNonce: deviceNonce, serverNonce: serverNonce),
+                    triesLeft: 2)
+                pairPhase = .confirm(retry: false)
                 return
             case .denied:
                 pairPhase = .denied
@@ -450,15 +534,87 @@ final class AppModel: ObservableObject {
             case .expired:
                 pairPhase = .expired
                 await pause(4)
+            case .abandoned:
+                pairPhase = .failed
+                return
             case .lost:
                 await pause(1)
             }
         }
     }
 
-    func retryPairing() {
-        guard screen == .pair, pairPhase == .failed else { return }
+    /// The person typed the code the Mac shows. A match proves the phone reached that Mac; two misses end the attempt.
+    func submitMacCode(_ typed: String) {
+        guard case .confirm = pairPhase, var pending = pendingConfirm else { return }
+        let digits = BellCrypto.typedDigits(typed)
+        guard digits.count == 6 else { return }
+        guard digits == pending.macCode else {
+            pending.triesLeft -= 1
+            if pending.triesLeft > 0 {
+                pendingConfirm = pending
+                pairPhase = .confirm(retry: true)
+            } else {
+                pendingConfirm = nil
+                pairPhase = .wrongMacCode
+                Task { [client] in await client.abandonPair(host: pending.record.host, pairID: pending.pairID) }
+            }
+            return
+        }
+        pairPhase = .confirming
         linkTask?.cancel()
+        let attempt = pairingAttempt
+        linkTask = Task { await finishPairing(pending, attempt: attempt) }
+    }
+
+    private func finishPairing(_ pending: PendingConfirm, attempt: Int) async {
+        let proof = BellCrypto.confirmProof(key: pending.record.key)
+        // After every wait: an answer for an attempt the person has since left changes nothing.
+        func current() -> Bool { !Task.isCancelled && attempt == pairingAttempt }
+        for round in 1...3 {
+            do {
+                let status = try await client.confirmPair(host: pending.record.host, pairID: pending.pairID, proof: proof)
+                guard current() else { return }
+                // Only the Mac holding this pairing's key can sign the answer, so a forged "confirmed" is refused.
+                guard status.state == "confirmed", status.deviceID == pending.record.deviceID,
+                      BellCrypto.verifyConfirmAck(key: pending.record.key, ack: status.ack,
+                                                  pairID: pending.pairID, deviceID: pending.record.deviceID) else { break }
+                pendingConfirm = nil
+                PairingStore.save(pending.record)
+                record = pending.record
+                pairReason = nil
+                link = .connecting
+                screen = .paired
+                noteActivity()
+                after("paired", 3) { [weak self] in
+                    if self?.screen == .paired { self?.screen = .idle }
+                }
+                linkTask = Task { await runLink(pending.record) }
+                return
+            } catch ListenerError.http(let code, _) {
+                guard current() else { return }
+                // 404: the Mac's two minutes ran out. Anything else: the Mac refused. Nothing was paired either way.
+                pendingConfirm = nil
+                pairPhase = code == 404 ? .expired : .failed
+                if code == 404 {
+                    await pause(4)
+                    if current() { await runPairing() }
+                }
+                return
+            } catch {
+                guard current() else { return }
+                await pause(Double(round))
+            }
+        }
+        guard current() else { return }
+        pendingConfirm = nil
+        pairPhase = .failed
+    }
+
+    func retryPairing() {
+        guard screen == .pair, pairPhase == .failed || pairPhase == .wrongMacCode else { return }
+        linkTask?.cancel()
+        pairingAttempt += 1
+        pendingConfirm = nil
         pairPhase = .searching
         linkTask = Task { await runPairing() }
     }
@@ -468,17 +624,7 @@ final class AppModel: ObservableObject {
         while !Task.isCancelled && Date() < deadline {
             await pause(1)
             do {
-                let status = try await client.pairStatus(host: host, pairID: pairID)
-                switch status.state {
-                case "approved":
-                    if let id = status.deviceID { return .approved(id) }
-                case "denied":
-                    return .denied
-                case "expired":
-                    return .expired
-                default:
-                    break
-                }
+                if let outcome = try await client.pairStatus(host: host, pairID: pairID).outcome { return outcome }
             } catch ListenerError.http(let code, _) where code == 404 {
                 return .lost
             } catch {
@@ -702,8 +848,7 @@ final class AppModel: ObservableObject {
             conclude(targets.map { SeatOutcome(seat: $0, state: .notConfirmed, reason: "the answer wasn't signed by your Mac") })
             return
         }
-        if status == 200, let reply, reply.requestID == nil || reply.requestID == requestID,
-           let top = reply.status, ["sent", "partial", "not_confirmed", "not_sent"].contains(top) {
+        if status == 200, let reply, let top = reply.verdict(for: requestID) {
             conclude(targets.map { seatOutcome($0, in: reply, top: top, single: targets.count == 1) },
                      failure: top == "not_sent" ? .notSent : nil)
             return

@@ -13,6 +13,8 @@ struct SeatOutcome: Decodable, Equatable {
     let id: String?
     let reason: String?
     let ring: Ring?
+    /// A later send again replaced this attempt: it keeps its outcome but offers no Send again.
+    var retried: Bool? = nil
 }
 
 struct Summary: Decodable, Equatable {
@@ -117,7 +119,8 @@ enum Words {
             let rang = r.ring?.outcome == "submitted"
             return ("In \(r.to)\u{2019}s inbox \u{00B7} " + (rang ? "doorbell rang" : "the doorbell didn\u{2019}t ring"), true)
         case "not_confirmed":
-            return ("\(r.to): the Mac couldn\u{2019}t confirm it (it may have arrived). Not retried.", false)
+            return ("\(r.to): the Mac couldn\u{2019}t confirm it (it may have arrived). "
+                    + (r.retried == true ? "Sent again later." : "Not retried."), false)
         case "not_attempted":
             return ("\(r.to): not attempted, because \(reason(r.reason)).", false)
         case "sending":

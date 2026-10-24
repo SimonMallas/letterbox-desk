@@ -8,6 +8,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from bell_desk import crypto  # noqa: E402
+from bell_desk.server import phone_letter_id  # noqa: E402
 
 server = crypto.load_private_key(bytes(range(32)))
 device = crypto.load_private_key(bytes(range(32, 64)))
@@ -22,7 +23,7 @@ body = b'{"request_id":"3f2a8c1e-5b7d-4e9f-a1c2-0d4b6e8f9a01","to":"bob","text":
 ts = 1791360000
 nonce = "00112233445566778899aabbccddeeff"
 response_body = b'{"status":"sent","request_id":"3f2a8c1e-5b7d-4e9f-a1c2-0d4b6e8f9a01","id":"2026-10-07T082200-desk-info-desk-dictation-1a2b3c4d"}'
-event = b'{"type":"mail","stream":"00112233445566778899aabbccddeeff","seq":1,"to":"alice","from":"bob","letter_type":"result","id":"2026-10-07T082113-bob-result-demo-5c1e8a20","priority":"now","ts":"2026-10-07T08:21:13Z"}'
+event = b'{"type":"mail","stream":"00112233445566778899aabbccddeeff","seq":1,"to":"alice","from":"bob","letter_type":"result","id":"2026-10-07T082113-5c1e8a20","priority":"now","ts":"2026-10-07T08:21:13Z"}'
 
 vectors = {
     "server_private": crypto.b64e(crypto.private_bytes(server)),
@@ -33,8 +34,12 @@ vectors = {
     "server_nonce": crypto.b64e(server_nonce),
     "commitment": crypto.b64e(crypto.commitment(server_pub, device_pub, server_nonce)),
     "pairing_code": crypto.pairing_code(server_pub, device_pub, device_nonce, server_nonce),
+    "confirm_code": crypto.confirm_code(server_pub, device_pub, device_nonce, server_nonce),
     "device_id": crypto.device_id(device_pub),
     "auth_key": crypto.b64e(key),
+    "confirm_proof": crypto.confirm_proof(key),
+    "confirm_ack": {"pair_id": "0123456789abcdef0123456789abcdef",
+                    "ack": crypto.confirm_ack(key, "0123456789abcdef0123456789abcdef", crypto.device_id(device_pub))},
     "request": {
         "method": "POST",
         "path": "/v1/dictation",
@@ -52,6 +57,11 @@ vectors = {
         "sig": crypto.sign_request(key, "GET", "/v1/events", ts, nonce, b""),
     },
     "event": {"json": event.decode("utf-8"), "sig": crypto.sign_event(key, event)},
+    # What the phone is sent for a letter id: its time and short token, never its subject.
+    "phone_letter_ids": [{"id": full, "phone": phone_letter_id(full)} for full in (
+        "2026-10-07T082113-bob-result-prod-database-is-down-5c1e8a20",
+        "2026-10-23T153358-0a1b2c3d-u0123456789ab",
+        "no-time-here")],
     "response": {
         "method": "POST",
         "path": "/v1/dictation",

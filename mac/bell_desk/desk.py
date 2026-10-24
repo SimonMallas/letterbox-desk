@@ -15,7 +15,6 @@ STATUS_WORD_RE = re.compile(r"^[A-Za-z][A-Za-z_-]{0,31}$")
 TEAM_RE = re.compile(r"^\s*([a-z][a-z0-9-]{0,31}): queue\[([^\]]*)\].*?\bstatus=(\S+)", re.M)
 PREVIEW = 160
 INBOX_MAX = 200
-KEEP_READ = 2000
 
 
 def letter_time(fields: dict, letter_id: str) -> str:
@@ -51,7 +50,7 @@ class DeskMail:
         self.seats = list(seats)
         self.lock = threading.RLock()
         self.cache = {}
-        self.read = state.read_ids()
+        self.read = set(state.read_ids())
 
     def _files(self) -> dict:
         found = {}
@@ -106,7 +105,9 @@ class DeskMail:
             files = self._files()
             self.cache = {name: value for name, value in self.cache.items() if name in files}
             letters = [self._record(name, files[name]) for name in sorted(files, reverse=True)]
-            return [self._decorate(r) for r in letters if r][:INBOX_MAX]
+            listed = [self._decorate(r) for r in letters if r]
+            # The newest INBOX_MAX names, plus every unread letter: one that rang the phone must be on the list.
+            return [r for i, r in enumerate(listed) if i < INBOX_MAX or not r["read"]]
 
     def letter(self, letter_id: str):
         """One letter to desk by id, header fields only, or None."""
@@ -130,12 +131,15 @@ class DeskMail:
             self.mark_read(letter_id)
             return {**self._decorate(record), "text": text}
 
-    def mark_read(self, letter_id: str):
+    def mark_read(self, *letter_ids: str):
+        """Marks are kept for every letter still in the desk mailbox, however many; marks for letters gone are dropped."""
         with self.lock:
-            if letter_id in self.read:
+            new = set(letter_ids) - self.read
+            if not new:
                 return
-            self.read = (self.read + [letter_id])[-KEEP_READ:]
-            self.state.save_read_ids(self.read)
+            present = {name[:-3] for name in self._files()}
+            self.read = {letter_id for letter_id in self.read | new if letter_id in present}
+            self.state.save_read_ids(sorted(self.read))
 
 
 class DeskBridge:
@@ -209,10 +213,27 @@ class DeskBridge:
     def _background(self, kind: str, ref: str, work):
         threading.Thread(target=lambda: self._result(kind, ref, work()), name=f"desk-{kind}", daemon=True).start()
 
+    def sent_view(self) -> list:
+        """The newest sends, plus any older copy still waiting for the person to send it again or mark it Done.
+        An attempt a later send again replaced keeps its own outcome but is marked retried: no Send again."""
+        sent = self.app.state.sent_letters()
+        shown = {item["request_id"] for item in sent}
+        waiting = self.app.state.awaiting_choice()
+        done = self.app.state.desk_view().get("done", {})
+        done = done if isinstance(done, dict) else {}
+        older = {rid for rid, seat in waiting
+                 if rid not in shown and f"{rid}/{seat}" not in (done.get(seat) if isinstance(done.get(seat), list) else [])}
+        extra = [self.app.state.sent_letter(rid) for rid in older]
+        items = sent + sorted((item for item in extra if item), key=lambda item: item["at"], reverse=True)
+        return [{**item, "results": [{**r, "retried": True}
+                                     if r.get("status") in ("not_confirmed", "not_attempted")
+                                     and (item["request_id"], r.get("to")) not in waiting else r
+                                     for r in item["results"]]} for item in items]
+
     def push(self, force: bool = False):
         """Inbox and Sent to the window, only when something changed."""
         with self.lock:
-            snapshot = {"type": "mail", "inbox": self.mail.inbox(), "sent": self.app.state.sent_letters()}
+            snapshot = {"type": "mail", "inbox": self.mail.inbox(), "sent": self.sent_view()}
             encoded = json.dumps(snapshot, sort_keys=True)
             conversations = self.conversations.snapshot()
             projected = json.dumps(conversations, sort_keys=True)

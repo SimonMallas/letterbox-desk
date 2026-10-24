@@ -60,16 +60,33 @@ step "Pictures"
 "$here/mac/Tools/setup-pictures.sh" "$here/mac/.venv/bin/bell-desk"
 
 step "Starting the listener"
-if pgrep -f 'bell-desk.* serve' >/dev/null; then
-  echo "  already running. If you changed the setup, quit it (type quit in its window) and run this again."
-elif $foreground; then
-  echo "  Run this in a terminal and keep it open:  $here/mac/.venv/bin/bell-desk serve"
+# A listener that was already running keeps running the old version until it restarts.
+rc=0; updated="$(bell service update 2>&1)" || rc=$?
+if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]; then
+  echo "  $updated"
+elif [ "$rc" -ne 4 ] && [ "$rc" -ne 5 ]; then
+  echo "  $updated" >&2
+  echo "  Letterbox Desk did not restart. Fix the problem above, then run: $here/mac/.venv/bin/bell-desk service install" >&2
+  exit 1
 else
-  read -r -p "  Start Letterbox Desk now and every time you log in? [Y/n] " answer
-  case "${answer:-y}" in
-    [Yy]*) if ! bell service install; then echo "  Letterbox Desk did not start. Fix the problem above, then run: $here/mac/.venv/bin/bell-desk service install" >&2; exit 1; fi ;;
-    *) echo "  Not started. Start it any time with:  $here/mac/.venv/bin/bell-desk service install" ;;
-  esac
+  # Nothing from this install is running (another install's login item may be): start it the usual way.
+  if [ "$rc" -eq 5 ]; then echo "  $updated"; fi
+  if $foreground; then
+    echo "  Run this in a terminal and keep it open:  $here/mac/.venv/bin/bell-desk serve"
+    echo "  To pair your iPhone, type pair in that window, then open Letterbox Bell on the phone."
+  elif [ "$rc" -eq 5 ]; then
+    read -r -p "  Replace it, so this install starts at login instead? The other one stops. [y/N] " answer
+    case "${answer:-n}" in
+      [Yy]*) if ! bell service install; then echo "  Letterbox Desk did not start. Fix the problem above, then run: $here/mac/.venv/bin/bell-desk service install" >&2; exit 1; fi ;;
+      *) echo "  Left as it is. To switch later, run:  $here/mac/.venv/bin/bell-desk service install" ;;
+    esac
+  else
+    read -r -p "  Start Letterbox Desk now and every time you log in? [Y/n] " answer
+    case "${answer:-y}" in
+      [Yy]*) if ! bell service install; then echo "  Letterbox Desk did not start. Fix the problem above, then run: $here/mac/.venv/bin/bell-desk service install" >&2; exit 1; fi ;;
+      *) echo "  Not started. Start it any time with:  $here/mac/.venv/bin/bell-desk service install" ;;
+    esac
+  fi
 fi
 
-printf '\nDone. Letterbox Desk is ready. If you enabled iPhone (Letterbox Bell), open Bell on the phone to pair.\n'
+printf '\nDone. Letterbox Desk is ready. To pair your iPhone, choose Pair a phone… in the bell menu (or run: %s pair), then open Letterbox Bell on the phone.\n' "$here/mac/.venv/bin/bell-desk"

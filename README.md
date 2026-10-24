@@ -11,7 +11,7 @@ On the Letterbox, you are `desk`. Your agents write to `desk` when they need you
 ![Letterbox Desk: a conversation with an agent, and a reply being written that also goes to a second agent, with a picture](docs/img/desk-conversation.png)
 
 - **One rolling conversation per agent.** Their letters are on the left; yours are on the right. Letters sent from the phone appear there too.
-- **New letter.** Write to one agent or several. Before you send, the Desk shows exactly what goes out to each one.
+- **New letter.** Write to one agent or several. Before you send, the Desk shows what goes out to each one, including the line it adds naming the other agents.
 - **Sent.** See every copy you have sent, from the Mac or the phone, and what happened to it. Nothing is sent again behind your back.
 - **Keep.** Choose how many days of letters the Desk shows. Older letters drop off the screen; their files stay on disk.
 - **Look.** Use Day, Night, or Auto, which follows your Mac.
@@ -39,19 +39,29 @@ The iPhone app is coming to the App Store. Until then you can build it onto your
 
 You need:
 
-- Agent Letterbox 0.5.0 or newer, any edition, set up with your agents;
+- [Agent Letterbox](https://agentletterbox.com/) 0.5.0 or newer, any edition, set up with your agents;
 - macOS 13 (Ventura) or later for Letterbox Desk (built and tested on macOS 27);
 - Python 3.11 or newer, or [uv](https://docs.astral.sh/uv/);
 - iOS 15 or later only if you want the Letterbox Bell add-on.
 
-From the repository:
+Get the code, then run the installer from it:
 
 ```bash
+git clone https://github.com/SimonMallas/letterbox-desk.git
+cd letterbox-desk
 ./install-mac.sh                              # finds the letterbox your Letterbox install set up
 ./install-mac.sh --letterbox-dir ~/my-box     # or name it (LETTERBOX_DIR works too)
 ```
 
 The installer shows the letterbox, helper, doorbell and agent folders it found. It asks which agents the Desk may write to. It also offers to set up pictures and asks whether you want the iPhone add-on.
+
+To pair your iPhone, choose **Pair a phone…** in the bell menu (or run `mac/.venv/bin/bell-desk pair`), then open Letterbox Bell on the phone. Pairing stays open for three minutes.
+
+### Updating
+
+Pull the new version and run `./install-mac.sh` again. It restarts this install's listener so the new version is the one running. If you started the listener in a terminal, type `quit` there and start it again.
+
+Phones you already paired keep working after an update. Pairing a new phone takes two codes and needs Letterbox Bell 1.0.1 or later on the phone.
 
 For everyday use, read [`docs/GUIDE.md`](docs/GUIDE.md). For build and validation commands, see [`BUILD.md`](BUILD.md) and [`TEST.md`](TEST.md). For the safety and privacy model, see [`SECURITY.md`](SECURITY.md).
 

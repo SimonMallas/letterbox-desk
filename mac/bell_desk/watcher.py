@@ -9,7 +9,9 @@ import re
 import stat
 import threading
 
-HEADER_MAX = 8192
+from .server import ENVELOPE_ID_RE
+
+HEADER_MAX = 32768  # as far as the Letterbox's own query reads a header
 SEAT_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 TYPE_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 TS_RE = re.compile(r"^[0-9A-Za-z:.+-]{1,40}$")
@@ -49,15 +51,17 @@ BIDI_MARKS = set("\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u
 
 
 def read_letter_text(path: str) -> str:
-    """The body of a letter after its frontmatter, bounded, for showing on this Mac only."""
+    """The body of a letter after its frontmatter, bounded, for showing on this Mac only.
+    A letter too long to show whole ends with a line saying so and naming its file."""
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
         return ""
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
             return ""
-        raw = os.read(fd, HEADER_MAX + LETTER_MAX)
+        raw = os.read(fd, HEADER_MAX + 4 * LETTER_MAX)  # LETTER_MAX characters in any script
     finally:
         os.close(fd)
     text = raw.decode("utf-8", errors="replace")
@@ -67,8 +71,12 @@ def read_letter_text(path: str) -> str:
             if line.rstrip("\r") == "---":
                 text = "\n".join(lines[i + 1:])
                 break
-    text = "".join(ch for ch in text if (ch in "\n\t" or ord(ch) >= 32) and ch not in BIDI_MARKS)
-    return text.strip()[:LETTER_MAX]
+    # Control characters (Unicode Cc: below 32, and 127 to 159) and direction marks go, as the sender refuses them.
+    text = "".join(ch for ch in text if (ch in "\n\t" or 32 <= ord(ch) < 127 or ord(ch) > 159) and ch not in BIDI_MARKS).strip()
+    if len(raw) < info.st_size or len(text) > LETTER_MAX:
+        return (text[:LETTER_MAX].rstrip("\ufffd")
+                + f"\n\n[This letter is too long to show here in full. Read all of it in its file: {path}]")
+    return text
 
 
 def mail_event(seat: str, name: str, fields: dict):
@@ -79,7 +87,7 @@ def mail_event(seat: str, name: str, fields: dict):
     sent = fields.get("sent", "")
     if fields.get("priority") != "now":
         return None
-    if fields.get("to") != seat or fields.get("id") != stem:
+    if fields.get("to") != seat or fields.get("id") != stem or not ENVELOPE_ID_RE.match(stem):
         return None
     if sender == "desk" or not SEAT_RE.match(sender):
         return None

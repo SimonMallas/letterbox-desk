@@ -1,7 +1,8 @@
 import CryptoKit
 import Foundation
 
-// Checks the app's BellCrypto.swift and EventParser.swift against mac/tests/vectors.json.
+// Checks the app's BellCrypto.swift, EventParser.swift and ListenerClient.swift against mac/tests/vectors.json,
+// and RingPolicy.swift's rules for when a letter rings.
 // Built and run by Tools/check-vectors.sh.
 
 struct Vectors: Decodable {
@@ -11,7 +12,9 @@ struct Vectors: Decodable {
     struct Response: Decodable { let method, path, nonce, body, canonical_sha256, sig: String; let status: Int }
     let server_private, device_private, server_public, device_public: String
     let device_nonce, server_nonce, commitment: String
-    let pairing_code, device_id, auth_key: String
+    struct ConfirmAck: Decodable { let pair_id, ack: String }
+    let pairing_code, confirm_code, confirm_proof, device_id, auth_key: String
+    let confirm_ack: ConfirmAck
     let request: Request
     let empty_body_get: EmptyGet
     let event: Event
@@ -50,6 +53,14 @@ check("commitment rejects another server_nonce",
 let code = BellCrypto.pairingCode(serverPub: serverPub, devicePub: devicePub, deviceNonce: deviceNonce, serverNonce: serverNonce)
 check("pairing_code", code, v.pairing_code)
 check("pairing_code shown", BellCrypto.displayCode(code), "461 702")
+// A typed code is read as the Mac reads one: decimal digits in any script, as ASCII, and nothing else.
+check("typed code, spaced", BellCrypto.typedDigits("461 702"), "461702")
+check("typed code, Arabic-Indic", BellCrypto.typedDigits("٤٦١٧٠٢"), "461702")
+check("typed code, Persian", BellCrypto.typedDigits("۴۶۱۷۰۲"), "461702")
+check("typed code, Devanagari", BellCrypto.typedDigits("४६१७०२"), "461702")
+check("typed code, full-width", BellCrypto.typedDigits("４６１７０２"), "461702")
+check("typed code, numerals that aren't digits", BellCrypto.typedDigits("½²Ⅻ一"), "")
+check("confirm_code", BellCrypto.confirmCode(serverPub: serverPub, devicePub: devicePub, deviceNonce: deviceNonce, serverNonce: serverNonce), v.confirm_code)
 check("device_id", BellCrypto.deviceID(devicePub: devicePub), v.device_id)
 
 let phoneKey = try BellCrypto.deriveKey(ownPrivate: device, peerPub: serverPub, serverPub: serverPub, devicePub: devicePub,
@@ -58,6 +69,14 @@ let macKey = try BellCrypto.deriveKey(ownPrivate: server, peerPub: devicePub, se
                                       deviceNonce: deviceNonce, serverNonce: serverNonce)
 check("auth_key (phone side)", phoneKey.base64EncodedString(), v.auth_key)
 check("auth_key (Mac side)", macKey.base64EncodedString(), v.auth_key)
+check("confirm_proof", BellCrypto.confirmProof(key: phoneKey), v.confirm_proof)
+check("confirm_ack", BellCrypto.confirmAck(key: phoneKey, pairID: v.confirm_ack.pair_id, deviceID: v.device_id), v.confirm_ack.ack)
+check("confirm_ack verifies", String(BellCrypto.verifyConfirmAck(key: phoneKey, ack: v.confirm_ack.ack,
+                                                                 pairID: v.confirm_ack.pair_id, deviceID: v.device_id)), "true")
+check("confirm_ack refused for another pairing", String(BellCrypto.verifyConfirmAck(key: phoneKey, ack: v.confirm_ack.ack,
+                                                                                    pairID: String(repeating: "0", count: 32), deviceID: v.device_id)), "false")
+check("confirm_ack refused when missing", String(BellCrypto.verifyConfirmAck(key: phoneKey, ack: nil,
+                                                                             pairID: v.confirm_ack.pair_id, deviceID: v.device_id)), "false")
 
 let r = v.request
 let body = Data(r.body.utf8)
@@ -96,7 +115,7 @@ func outcome(_ lines: [Data]) -> String {
 }
 
 let parsed = outcome([hello, Data(), vectorLine])
-check("event via stream parser", parsed.hasPrefix("mail(") && parsed.contains("2026-10-07T082113-bob-result-demo-5c1e8a20") ? "mail accepted" : parsed, "mail accepted")
+check("event via stream parser", parsed.hasPrefix("mail(") && parsed.contains("2026-10-07T082113-5c1e8a20") ? "mail accepted" : parsed, "mail accepted")
 
 var tampered = vectorLine
 tampered[tampered.count - 3] ^= 0x01
@@ -107,8 +126,59 @@ check("mail before hello", outcome([line(#"{"type":"ping","stream":"\#(stream)",
 
 var splitter = LineSplitter()
 let wire = Data("data: a\r\n\r\ndata: b\n".utf8)
-let split = wire.compactMap { splitter.feed($0) }.map { String(decoding: $0, as: UTF8.self) }
+let split = try wire.compactMap { try splitter.feed($0) }.map { String(decoding: $0, as: UTF8.self) }
 check("line splitting", split.description, #"["data: a", "", "data: b"]"#)
+
+// Lines are split before any signature check, so one without a newline must not grow without limit.
+func lines(_ wire: Data) -> String {
+    var splitter = LineSplitter()
+    do {
+        return try wire.compactMap { try splitter.feed($0) }.map { "\($0.count) bytes" }.description
+    } catch {
+        return "dropped(\(error))"
+    }
+}
+check("line at the 64 KB cap", lines(Data(repeating: 0x61, count: 65536) + Data("\n".utf8)), #"["65536 bytes"]"#)
+check("line past the cap", lines(Data(repeating: 0x61, count: 65537)), "dropped(malformed)")
+
+// Answer bodies are read as they arrive, so one that never ends must not grow without limit either.
+func answerBody(_ count: Int) async -> String {
+    let bytes = AsyncStream<UInt8> { stream in
+        for _ in 0..<count { stream.yield(0x20) }
+        stream.finish()
+    }
+    do {
+        return "\(try await ListenerClient.body(bytes).count) bytes"
+    } catch {
+        return "dropped(\(error))"
+    }
+}
+check("answer at the 1 MB cap", await answerBody(1 << 20), "1048576 bytes")
+check("answer past the cap", await answerBody((1 << 20) + 1), "dropped(badResponse)")
+
+// Polling for code A: only a final state ends the wait.
+func poll(_ json: String) -> String {
+    let status = try! JSONDecoder().decode(PairStatus.self, from: Data(json.utf8))
+    return status.outcome.map { "\($0)" } ?? "keeps waiting"
+}
+check("poll, pending", poll(#"{"state":"pending"}"#), "keeps waiting")
+check("poll, confirm", poll(#"{"state":"confirm","device_id":"0011223344556677"}"#), #"approved("0011223344556677")"#)
+check("poll, confirm without device_id", poll(#"{"state":"confirm"}"#), "keeps waiting")
+check("poll, denied", poll(#"{"state":"denied"}"#), "denied")
+check("poll, expired", poll(#"{"state":"expired"}"#), "expired")
+check("poll, abandoned by another device", poll(#"{"state":"abandoned"}"#), "abandoned")
+
+// A signed answer is this letter's result only if it names this letter's request_id.
+let requestID = "0b7d6c44-8f3e-4d3a-9b8e-2f1f6a9c3d10"
+func verdict(_ json: String) -> String {
+    let reply = try! JSONDecoder().decode(DictationReply.self, from: Data(json.utf8))
+    return reply.verdict(for: requestID) ?? "not this request's result"
+}
+check("reply for this request", verdict(#"{"status":"sent","request_id":"\#(requestID)","results":[]}"#), "sent")
+check("reply for another request",
+      verdict(#"{"status":"sent","request_id":"ffffffff-ffff-4fff-bfff-ffffffffffff","results":[]}"#), "not this request's result")
+check("reply naming no request", verdict(#"{"status":"sent","results":[]}"#), "not this request's result")
+check("reply with an unknown status", verdict(#"{"status":"queued","request_id":"\#(requestID)"}"#), "not this request's result")
 
 // Answers from the Mac: the exact signed answer verifies; another status, nonce, or body does not.
 let resp = v.response
@@ -126,6 +196,28 @@ check("response, other status", answer(404, resp.nonce, respBody, resp.sig), "fa
 check("response, other request nonce", answer(resp.status, String(repeating: "f", count: 32), respBody, resp.sig), "false")
 check("response, altered body", answer(resp.status, resp.nonce, Data(resp.body.replacingOccurrences(of: "sent", with: "SENT").utf8), resp.sig), "false")
 check("response, no signature", answer(resp.status, resp.nonce, respBody, nil), "false")
+
+// When a ring-eligible letter rings: replies only, and quiet hours that may cross midnight.
+var utc = Calendar(identifier: .gregorian)
+utc.timeZone = TimeZone(identifier: "UTC")!
+func rings(_ policy: RingPolicy, forYou: Bool, _ hour: Int, _ minute: Int) -> String {
+    String(policy.shouldRing(forYou: forYou, at: Date(timeIntervalSince1970: TimeInterval(hour * 3600 + minute * 60)), calendar: utc))
+}
+var policy = RingPolicy()
+check("ring, everything", rings(policy, forYou: false, 12, 0), "true")
+policy.ringFor = .repliesOnly
+check("ring, replies only, not for you", rings(policy, forYou: false, 12, 0), "false")
+check("ring, replies only, for you", rings(policy, forYou: true, 12, 0), "true")
+policy = RingPolicy(quietHours: true)
+check("ring, quiet 22:00-07:00 at 23:30", rings(policy, forYou: true, 23, 30), "false")
+check("ring, quiet 22:00-07:00 at 06:59", rings(policy, forYou: true, 6, 59), "false")
+check("ring, quiet 22:00-07:00 at 07:00", rings(policy, forYou: true, 7, 0), "true")
+policy.quietFrom = 13 * 60
+policy.quietTo = 14 * 60
+check("ring, quiet 13:00-14:00 at 13:30", rings(policy, forYou: true, 13, 30), "false")
+check("ring, quiet 13:00-14:00 at 12:59", rings(policy, forYou: true, 12, 59), "true")
+policy.quietTo = policy.quietFrom
+check("ring, quiet with equal ends", rings(policy, forYou: true, 13, 0), "true")
 
 print(failures == 0 ? "\nAll vector checks passed." : "\n\(failures) check(s) failed.")
 exit(failures == 0 ? 0 : 1)

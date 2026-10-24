@@ -12,11 +12,14 @@ struct Hello: Decodable {
     let name: String
     let pairingOpen: Bool
     let serverPub: String
+    /// The Mac shows a second code for the phone to check. A Mac without it is too old to pair with.
+    let pairConfirm: Bool?
 
     enum CodingKeys: String, CodingKey {
         case name
         case pairingOpen = "pairing_open"
         case serverPub = "server_pub"
+        case pairConfirm = "pair_confirm"
     }
 }
 
@@ -43,12 +46,32 @@ private struct PairNonceReply: Decodable {
 struct PairStatus: Decodable {
     let state: String
     let deviceID: String?
+    /// On `confirmed`: the Mac's signature over this pairing, made with the new key.
+    let ack: String?
 
     enum CodingKeys: String, CodingKey {
-        case state
+        case state, ack
         case deviceID = "device_id"
     }
+
+    /// What this poll means while the phone shows code A; nil while the Mac is still waiting for it.
+    var outcome: PairOutcome? {
+        switch state {
+        case "confirm":  // code A matched on the Mac; code B comes next
+            return deviceID.map { .approved($0) }
+        case "denied":
+            return .denied
+        case "expired":
+            return .expired
+        case "abandoned":  // this phone never gives up while it waits, so another device cancelled it
+            return .abandoned
+        default:
+            return nil
+        }
+    }
 }
+
+enum PairOutcome { case approved(String), denied, expired, abandoned, lost }
 
 /// Body of a dictation POST answer, a status check answer, or an error.
 struct DictationReply: Decodable {
@@ -77,6 +100,14 @@ struct DictationReply: Decodable {
     enum CodingKeys: String, CodingKey {
         case status, id, ring, reason, error, results
         case requestID = "request_id"
+    }
+
+    /// The Mac's top-level status for this request, or nil when this isn't its result. Every Mac result names
+    /// its request_id, so one that names none is not this request's either.
+    func verdict(for requestID: String) -> String? {
+        guard self.requestID == requestID, let status,
+              ["sent", "partial", "not_confirmed", "not_sent"].contains(status) else { return nil }
+        return status
     }
 }
 
@@ -167,6 +198,25 @@ final class ListenerClient {
         return try decode(PairStatus.self, data)
     }
 
+    /// Proves the person typed the code the Mac shows; only then does the Mac keep this phone.
+    func confirmPair(host: String, pairID: String, proof: String) async throws -> PairStatus {
+        var req = URLRequest(url: try url(host, "/v1/pair/\(pairID)/confirm"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["proof": proof])
+        let (status, data) = try await perform(req)
+        guard status == 200 else { throw ListenerError.http(status, errorCode(data)) }
+        return try decode(PairStatus.self, data)
+    }
+
+    /// Best effort: tells the Mac the code didn't match, so its window can close.
+    func abandonPair(host: String, pairID: String) async {
+        guard let url = try? url(host, "/v1/pair/\(pairID)/abandon") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        _ = try? await perform(req)
+    }
+
     // MARK: Signed
 
     /// (status, reply, trusted): trusted only when the paired Mac signed this answer for this request.
@@ -218,7 +268,7 @@ final class ListenerClient {
                 var verifier = EventVerifier(key: key, streamNonce: nonce)
                 var splitter = LineSplitter()
                 for try await byte in bytes {
-                    guard let line = splitter.feed(byte), let event = try verifier.accept(line: line) else { continue }
+                    guard let line = try splitter.feed(byte), let event = try verifier.accept(line: line) else { continue }
                     lastEvent.beat()
                     await onEvent(event)
                 }
@@ -266,12 +316,26 @@ final class ListenerClient {
 
     private func performWithHeaders(_ req: URLRequest) async throws -> (Int, Data, HTTPURLResponse) {
         do {
-            let (data, response) = try await session.data(for: req)
+            let (bytes, response) = try await session.bytes(for: req)
             guard let http = response as? HTTPURLResponse else { throw ListenerError.badResponse }
-            return (http.statusCode, data, http)
+            return (http.statusCode, try await Self.body(bytes), http)
         } catch is URLError {
             throw ListenerError.unreachable
         }
+    }
+
+    /// The longest answer is a dictation reply: under 1 KB plus a few hundred bytes per seat.
+    static let maxAnswer = 1024 * 1024
+
+    /// One answer's body, read as it arrives. A longer one is refused as malformed, so no host can make the
+    /// phone buffer it without limit.
+    static func body<Bytes: AsyncSequence>(_ bytes: Bytes) async throws -> Data where Bytes.Element == UInt8 {
+        var body = Data()
+        for try await byte in bytes {
+            guard body.count < maxAnswer else { throw ListenerError.badResponse }
+            body.append(byte)
+        }
+        return body
     }
 
     private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {

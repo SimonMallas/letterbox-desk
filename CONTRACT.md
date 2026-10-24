@@ -75,9 +75,11 @@ These are constraints the Desk places on itself.
   run `letterbox init` and doesn't create `locks`.
 
 **Reading**
-- The Desk reads at most 8 KB of a letter's header and uses `id`, `sent`, `from`, `to`, `type`, `re` and
-  `priority`. A letter counts only if `id` matches its file name and `to` matches its mailbox.
-  Dot-files are ignored. Symlinks are not followed.
+- The Desk reads at most 32 KB of a letter's header, as far as the Letterbox's own query reads, and
+  uses `id`, `sent`, `from`, `to`, `type`, `re` and `priority`. A letter counts only if `id` matches
+  its file name and `to` matches its mailbox. Dot-files are ignored. Symlinks are not followed.
+- The Desk shows up to 20,000 characters of a letter. A longer one ends with a line saying so and
+  naming its file.
 - `priority: now` makes a new letter eligible to ring the phone. A ring also needs the phone side
   switched on, a paired phone, and a letter that arrived after the listener started. It is never
   a sign that anyone read the letter.

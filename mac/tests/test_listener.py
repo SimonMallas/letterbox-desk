@@ -10,12 +10,13 @@ import threading
 import time
 import unittest
 import uuid
+from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from bell_desk import crypto  # noqa: E402
+from bell_desk import cli, crypto, server  # noqa: E402
 from bell_desk.sender import PinnedHelper, file_sha256  # noqa: E402
-from bell_desk.server import App, DeskHTTPServer  # noqa: E402
+from bell_desk.server import CONFIRM_WINDOW, NONCE_DEADLINE, PAIR_FORGET, PAIR_OPEN, App, DeskHTTPServer  # noqa: E402
 from bell_desk.store import State  # noqa: E402
 from bell_desk.watcher import LETTER_MAX, InboxWatcher, read_header, read_letter_text  # noqa: E402
 
@@ -64,14 +65,23 @@ class VectorTests(unittest.TestCase):
         device_nonce, server_nonce = crypto.b64d(VECTORS["device_nonce"]), crypto.b64d(VECTORS["server_nonce"])
         self.assertEqual(crypto.b64e(crypto.commitment(server_pub, device_pub, server_nonce)), VECTORS["commitment"])
         self.assertEqual(crypto.pairing_code(server_pub, device_pub, device_nonce, server_nonce), VECTORS["pairing_code"])
+        self.assertEqual(crypto.confirm_code(server_pub, device_pub, device_nonce, server_nonce), VECTORS["confirm_code"])
+        self.assertNotEqual(VECTORS["confirm_code"], VECTORS["pairing_code"])
         self.assertEqual(crypto.device_id(device_pub), VECTORS["device_id"])
         key = crypto.derive_key(device, server_pub, server_pub, device_pub, device_nonce, server_nonce)
         self.assertEqual(crypto.b64e(key), VECTORS["auth_key"])
+        self.assertEqual(crypto.confirm_proof(key), VECTORS["confirm_proof"])
+        c = VECTORS["confirm_ack"]
+        self.assertEqual(crypto.confirm_ack(key, c["pair_id"], VECTORS["device_id"]), c["ack"])
         r = VECTORS["request"]
         self.assertEqual(crypto.sign_request(key, r["method"], r["path"], r["ts"], r["nonce"], r["body"].encode()), r["sig"])
         g = VECTORS["empty_body_get"]
         self.assertEqual(crypto.sign_request(key, g["method"], g["path"], g["ts"], g["nonce"], b""), g["sig"])
         self.assertEqual(crypto.sign_event(key, VECTORS["event"]["json"].encode()), VECTORS["event"]["sig"])
+        self.assertNotIn("bob-result", VECTORS["event"]["json"])
+        from bell_desk.server import phone_letter_id
+        for pair in VECTORS["phone_letter_ids"]:
+            self.assertEqual(phone_letter_id(pair["id"]), pair["phone"])
 
 
 class WatcherTests(unittest.TestCase):
@@ -172,10 +182,22 @@ class WatcherTests(unittest.TestCase):
         text = read_letter_text(path)
         self.assertTrue(text.startswith("Hello[31m there"))
         self.assertNotIn("from: bob", text)
-        self.assertLessEqual(len(text), LETTER_MAX)
+        self.assertLessEqual(len(text.rpartition("\n\n")[0]), LETTER_MAX)
         link = os.path.join(self.bus, "desk", "inbox", "link.md")
         os.symlink(path, link)
         self.assertEqual(read_letter_text(link), "")
+
+    def test_a_letter_too_long_to_show_says_so_and_where_the_rest_is(self):
+        long_path = os.path.join(self.bus, "desk", "inbox", "long.md")
+        pathlib.Path(long_path).write_text("---\nid: long\n---\n" + "Status line. " * 3000 + "\nLAST LINE\n")
+        text = read_letter_text(long_path)
+        self.assertNotIn("LAST LINE", text)
+        self.assertTrue(text.endswith(f"\n\n[This letter is too long to show here in full. Read all of it in its file: {long_path}]"))
+        # The limit is in characters, whatever the script: 18,400 Japanese characters (55 KB) show whole.
+        japanese = "状況は順調です。" * 2300 + "\n最後の行"
+        wide_path = os.path.join(self.bus, "desk", "inbox", "wide.md")
+        pathlib.Path(wide_path).write_text("---\nid: wide\n---\n" + japanese)
+        self.assertEqual(read_letter_text(wide_path), japanese)
 
     def test_a_fifo_named_like_a_letter_does_not_hang_the_watcher(self):
         self.watcher.baseline()
@@ -184,6 +206,11 @@ class WatcherTests(unittest.TestCase):
         threading.Thread(target=lambda: (self.watcher.scan_once(), done.set()), daemon=True).start()
         self.assertTrue(done.wait(3), "the scan hung on a FIFO")
         self.assertEqual(read_letter_text(os.path.join(self.bus, "desk", "inbox", "trap.md")), "")
+
+    def test_every_control_character_the_sender_refuses_is_removed_from_letter_text(self):
+        path = os.path.join(self.bus, "desk", "inbox", "c.md")
+        pathlib.Path(path).write_text("---\nid: c\n---\na\x7fb\x9bc\x85d\x00e\tf")
+        self.assertEqual(read_letter_text(path), "abcde\tf")
 
     def test_direction_marks_are_removed_from_card_text(self):
         path = os.path.join(self.bus, "desk", "inbox", "d.md")
@@ -235,6 +262,42 @@ class HelperTests(unittest.TestCase):
 
 
 class RecordTests(unittest.TestCase):
+    def test_the_log_keeps_one_older_file_and_never_grows_past_it(self):
+        from bell_desk.store import LOG_MAX
+        with tempfile.TemporaryDirectory() as root:
+            state = State(root)
+            pathlib.Path(state.path("bell-desk.log")).write_text("x" * LOG_MAX)
+            state.log("after the limit")
+            self.assertEqual(pathlib.Path(state.path("bell-desk.log.1")).read_text(), "x" * LOG_MAX)
+            self.assertTrue(pathlib.Path(state.path("bell-desk.log")).read_text().endswith(" after the limit\n"))
+            self.assertLess(os.path.getsize(state.path("bell-desk.log")), 100)
+
+    def test_state_files_are_written_whole_and_never_through_a_link(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = State(os.path.join(root, "state"))
+            outside = pathlib.Path(root, "outside.txt")
+            outside.write_text("not yours")
+            os.symlink(outside, state.path(f"config.json.tmp-{os.getpid()}"))
+            state.save_config({"phone": True})
+            self.assertEqual(outside.read_text(), "not yours")
+            config = pathlib.Path(state.path("config.json"))
+            self.assertFalse(config.is_symlink())
+            self.assertEqual((json.loads(config.read_text()), stat.S_IMODE(config.stat().st_mode)), ({"phone": True}, 0o600))
+
+            # A link waiting at the very temporary name a write will use, for the state and for the pairing files.
+            writes = {"config.json": lambda path: state.save_config({"phone": False}),
+                      "pair-result-abc.json": lambda path: cli.write_json_whole(path, {"token": "abc"})}
+            for name, write in writes.items():
+                path = state.path(name)
+                for temporary in (f"{path}.tmp-{os.getpid()}-feedface", f"{path}.feedface.tmp"):
+                    os.symlink(outside, temporary)
+                with patch("secrets.token_hex", return_value="feedface"), self.assertRaises(OSError, msg=name):
+                    write(path)
+                self.assertEqual(outside.read_text(), "not yours", name)
+            cli.write_json_whole(state.path("pair-result-abc.json"), {"token": "abc"})
+            result = pathlib.Path(state.path("pair-result-abc.json"))
+            self.assertEqual((json.loads(result.read_text()), stat.S_IMODE(result.stat().st_mode)), ({"token": "abc"}, 0o600))
+
     def test_a_group_cut_off_mid_send_reads_back_per_seat(self):
         with tempfile.TemporaryDirectory() as root:
             state = State(root)
@@ -319,7 +382,12 @@ class ServerTests(unittest.TestCase):
         body = json.dumps({"device_nonce": crypto.b64e(device_nonce)}).encode()
         return self.client.request("POST", f"/v1/pair/{pair_id}/nonce", body, sign=False)
 
-    def pair(self):
+    def confirm(self, pair_id, proof):
+        body = json.dumps({"proof": proof}).encode()
+        return self.client.request("POST", f"/v1/pair/{pair_id}/confirm", body, sign=False)
+
+    def approve(self):
+        """Code A typed on the Mac. The phone holds the key but has not yet proved code B; returns the pair_id."""
         device, device_pub, reply = self.start_pairing()
         server_pub = crypto.b64d(reply["server_pub"])
         self.assertEqual(reply["server_pub"], self.client.request("GET", "/v1/hello", sign=False)[1]["server_pub"])
@@ -331,17 +399,25 @@ class ServerTests(unittest.TestCase):
         code = crypto.pairing_code(server_pub, device_pub, device_nonce, server_nonce)
         self.assertEqual(self.app.pairings[reply["pair_id"]]["code"], code)
         self.assertEqual(self.client.request("GET", "/v1/pair/" + reply["pair_id"], sign=False)[1], {"state": "pending"})
-        self.assertTrue(self.app.decide("", True).startswith("approved"))
+        code_b = crypto.confirm_code(server_pub, device_pub, device_nonce, server_nonce)
+        self.assertIn(f"{code_b[:3]} {code_b[3:]}", self.app.approve_code(f"{code[:3]} {code[3:]}"))
         status, state = self.client.request("GET", "/v1/pair/" + reply["pair_id"], sign=False)
-        self.assertEqual(state["state"], "approved")
+        self.assertEqual(state["state"], "confirm")
         self.client.device_id = state["device_id"]
         self.client.key = crypto.derive_key(device, server_pub, server_pub, device_pub, device_nonce, server_nonce)
-        self.assertEqual(crypto.b64e(self.client.key), self.app.state.devices()[state["device_id"]]["key"])
+        return reply["pair_id"]
+
+    def pair(self):
+        pair_id = self.approve()
+        ack = crypto.confirm_ack(self.client.key, pair_id, self.client.device_id)
+        self.assertEqual(self.confirm(pair_id, crypto.confirm_proof(self.client.key)),
+                         (200, {"state": "confirmed", "device_id": self.client.device_id, "ack": ack}))
+        self.assertEqual(crypto.b64e(self.client.key), self.app.state.devices()[self.client.device_id]["key"])
 
     def test_no_approval_before_the_phone_commits_its_nonce(self):
         self.app.open_pairing()
         _, _, reply = self.start_pairing()
-        self.assertIn("no code yet", self.app.decide("", True))
+        self.assertIn("no waiting phone shows that code", self.app.approve_code("123456"))
         self.assertEqual(self.app.state.devices(), {})
         self.assertEqual(self.send_nonce(reply["pair_id"], secrets.token_bytes(16))[0], 200)
         self.assertEqual(self.send_nonce(reply["pair_id"], secrets.token_bytes(16)), (409, {"error": "nonce_already_set"}))
@@ -456,7 +532,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.helper_calls(), 2)
 
     def test_a_reply_with_a_malformed_letter_id_is_refused(self):
-        for bad in ("-rf", "", "has space", "../x", "a" * 129):
+        for bad in ("-rf", "", "has space", "../x", "a" * 244):
             self.assertEqual(self.app.reply_from_mac({"from": "bob", "id": bad}, "hi")["reason"], "bad_letter_id")
         self.assertEqual(self.helper_calls(), 0)
 
@@ -479,6 +555,22 @@ class ServerTests(unittest.TestCase):
         self.app.publish_mail({"to": "alice", "from": "bob", "letter_type": "info", "id": "after", "priority": "now", "ts": ""})
         self.assertTrue(q.empty())
 
+    def test_the_phone_gets_the_letter_time_and_token_never_its_subject(self):
+        import hashlib
+        import queue as queue_module
+        q = queue_module.Queue()
+        self.app.subscribe(q, "any-phone")
+        subject = "2026-10-23T091500-alice-info-prod-database-is-down-cannot-charge-customers-0000feed"
+        bridge = "2026-10-23T153358-0a1b2c3d-u0123456789ab"
+        for letter_id in (subject, bridge, "no-time-here"):
+            self.app.publish_mail({"to": "desk", "from": "alice", "letter_type": "info", "id": letter_id,
+                                   "priority": "now", "ts": "", "for_you": True})
+        sent = [q.get_nowait()["id"] for _ in range(3)]
+        self.assertEqual(sent, ["2026-10-23T091500-0000feed",
+                                "2026-10-23T153358-" + hashlib.sha256(bridge.encode()).hexdigest()[:8],
+                                hashlib.sha256(b"no-time-here").hexdigest()[:8]])
+        self.assertNotIn("database", json.dumps(self.app.last_mail))
+
     def dictate(self, to="bob", text="Check my relay is still up.", request_id=None):
         body = json.dumps({"request_id": request_id or str(uuid.uuid4()), "to": to, "text": text}).encode()
         return self.client.request("POST", "/v1/dictation", body)
@@ -497,19 +589,239 @@ class ServerTests(unittest.TestCase):
             time.sleep(0.02)
         return False
 
-    def test_typing_the_phones_code_into_the_pop_up_pairs_it(self):
-        asked = []
+    def test_typing_the_phones_code_into_the_pop_up_shows_code_b(self):
+        asked, shown = [], []
         self.app.ask_for_code = lambda name: asked.append(name) or self.current_code()[:3] + " " + self.current_code()[3:]
-        _, _, reply = self.start_pairing()
-        self.assertEqual(self.send_nonce(reply["pair_id"], secrets.token_bytes(16))[0], 200)
-        self.assertTrue(self.wait_for(lambda: self.app.pairings[reply["pair_id"]]["state"] == "approved"))
+        self.app.paired = lambda pair_id, name, code: shown.append((pair_id, name, code))
+        self.app.open_pairing()
+        _, device_pub, reply = self.start_pairing()
+        device_nonce = secrets.token_bytes(16)
+        status, revealed = self.send_nonce(reply["pair_id"], device_nonce)
+        self.assertEqual(status, 200)
+        self.assertTrue(self.wait_for(lambda: shown))
         self.assertEqual(asked, ["Sample iPhone"])
-        self.assertEqual(len(self.app.state.devices()), 1)
+        code_b = crypto.confirm_code(crypto.b64d(reply["server_pub"]), device_pub, device_nonce, crypto.b64d(revealed["server_nonce"]))
+        self.assertEqual(shown, [(reply["pair_id"], "Sample iPhone", code_b)])
+        self.assertEqual(self.app.pairings[reply["pair_id"]]["state"], "confirm")
+        self.assertEqual(self.app.state.devices(), {})
+
+    def test_each_pairing_closes_its_own_code_window_even_when_two_phones_share_a_name(self):
+        from bell_desk import macui
+        opened = []
+        class Window:
+            def __init__(self, args, **kw): self.args, self.closed = args, False; opened.append(self)
+            def terminate(self): self.closed = True
+        with patch.object(macui, "window_available", return_value=True), patch.object(macui.subprocess, "Popen", Window):
+            macui.paired("a" * 32, "iPhone", "111111")
+            macui.paired("b" * 32, "iPhone", "222222")
+            macui.confirmed("a" * 32, "iPhone", True)
+        first, second = opened[:2]
+        self.assertEqual((first.args[2], second.args[2]), ("111111", "222222"))
+        self.assertEqual((first.closed, second.closed), (True, False))
+
+    def test_code_a_alone_pairs_nothing_until_the_phone_proves_code_b(self):
+        self.app.open_pairing()
+        pair_id = self.approve()
+        self.assertEqual(self.app.state.devices(), {})
+        self.assertEqual(self.dictate()[0], 401)
+        self.assertEqual(self.client.request("GET", "/v1/events")[0], 401)
+        # Not "approved": a 1.0 phone treats that as paired, saves a record the Mac never keeps, and loops.
+        self.assertEqual(self.client.request("GET", "/v1/pair/" + pair_id, sign=False)[1]["state"], "confirm")
+
+    def test_a_confirmed_phone_closes_pairing_and_a_repeated_proof_is_harmless(self):
+        finished = []
+        self.app.confirmed = lambda pair_id, name, ok: finished.append((pair_id, name, ok))
+        self.app.open_pairing()
+        self.pair()
+        pair_id = next(iter(self.app.pairings))
+        self.assertEqual(finished, [(pair_id, "Sample iPhone", True)])
+        self.assertFalse(self.app.pairing_open())
+        self.assertEqual(self.client.request("GET", "/v1/pair/" + pair_id, sign=False)[1],
+                         {"state": "confirmed", "device_id": self.client.device_id})
+        self.assertEqual(self.confirm(pair_id, crypto.confirm_proof(self.client.key)),
+                         (200, {"state": "confirmed", "device_id": self.client.device_id,
+                                "ack": crypto.confirm_ack(self.client.key, pair_id, self.client.device_id)}))
+        self.assertEqual(finished, [(pair_id, "Sample iPhone", True)])
+        self.assertEqual(self.dictate()[0], 200)
+
+    def test_a_wrong_proof_pairs_nothing_and_ends_the_attempt(self):
+        finished = []
+        self.app.confirmed = lambda pair_id, name, ok: finished.append(ok)
+        self.app.open_pairing()
+        pair_id = self.approve()
+        self.assertEqual(self.confirm(pair_id, crypto.confirm_proof(secrets.token_bytes(32))), (403, {"error": "bad_proof"}))
+        self.assertEqual(self.confirm(pair_id, crypto.confirm_proof(self.client.key))[0], 404)
+        self.assertEqual(self.confirm(pair_id, "not base64")[0], 404)
+        self.assertEqual(self.app.state.devices(), {})
+        self.assertEqual(finished, [False])
+        self.assertFalse(self.app.pairing_open())
+
+    def test_a_malformed_proof_is_a_bad_request(self):
+        self.app.open_pairing()
+        pair_id = self.approve()
+        for body in (b"", b"{}", b'{"proof": 7}', b"[]"):
+            self.assertEqual(self.client.request("POST", f"/v1/pair/{pair_id}/confirm", body, sign=False),
+                             (400, {"error": "bad_request", "reason": "bad_json"}))
+        self.assertEqual(self.confirm(pair_id, crypto.confirm_proof(self.client.key))[0], 200)
+
+    def test_code_b_must_be_proved_within_two_minutes(self):
+        self.app.open_pairing()
+        pair_id = self.approve()
+        self.app.pairings[pair_id]["approved_at"] -= CONFIRM_WINDOW
+        self.assertEqual(self.confirm(pair_id, crypto.confirm_proof(self.client.key))[0], 404)
+        self.assertEqual(self.client.request("GET", "/v1/pair/" + pair_id, sign=False)[1]["state"], "expired")
+        self.assertEqual(self.app.state.devices(), {})
+
+    def test_the_phone_abandons_after_a_wrong_code_b(self):
+        finished = []
+        self.app.confirmed = lambda pair_id, name, ok: finished.append(ok)
+        self.app.open_pairing()
+        pair_id = self.approve()
+        abandon = f"/v1/pair/{pair_id}/abandon"
+        self.assertEqual(self.client.request("POST", abandon, b"", sign=False), (200, {"state": "abandoned"}))
+        self.assertEqual(self.client.request("POST", abandon, b"", sign=False)[0], 404)
+        self.assertEqual(self.confirm(pair_id, crypto.confirm_proof(self.client.key))[0], 404)
+        self.assertEqual(self.app.state.devices(), {})
+        self.assertEqual(finished, [False])
+
+    def test_abandon_cannot_undo_a_confirmed_pairing(self):
+        self.app.open_pairing()
+        self.pair()
+        pair_id = next(iter(self.app.pairings))
+        self.assertEqual(self.client.request("POST", f"/v1/pair/{pair_id}/abandon", b"", sign=False)[0], 404)
+        self.assertIn(self.client.device_id, self.app.state.devices())
+
+    def test_pairing_is_closed_until_someone_opens_it_on_the_mac(self):
+        hello = self.client.request("GET", "/v1/hello", sign=False)[1]
+        self.assertEqual((hello["pairing_open"], hello["pair_confirm"]), (False, True))
+        body = json.dumps({"device_pub": crypto.b64e(crypto.public_bytes(crypto.new_private_key()))}).encode()
+        self.assertEqual(self.client.request("POST", "/v1/pair", body, sign=False), (403, {"error": "pairing_closed"}))
+        self.app.open_pairing()
+        self.assertTrue(self.client.request("GET", "/v1/hello", sign=False)[1]["pairing_open"])
+        self.assertLessEqual(self.app.pairing_until - time.time(), PAIR_OPEN)
+        self.app.pairing_until = time.time() - 1
+        self.assertEqual(self.client.request("POST", "/v1/pair", body, sign=False)[0], 403)
+
+    def test_a_request_that_never_sends_its_nonce_lets_go_after_ten_seconds(self):
+        asked = []
+        self.app.ask_for_code = lambda name: asked.append(name) or ""
+        self.app.open_pairing()
+        _, _, reply = self.start_pairing()
+        self.app.pairings[reply["pair_id"]]["created"] -= NONCE_DEADLINE
+        self.assertEqual(self.send_nonce(reply["pair_id"], secrets.token_bytes(16)), (404, {"error": "unknown_pairing"}))
+        self.assertEqual(asked, [])
+        self.start_pairing()
+
+    def test_a_finished_attempt_is_forgotten_after_a_while_so_attempts_never_pile_up(self):
+        self.app.open_pairing()
+        _, _, old = self.start_pairing()
+        self.app.pairings[old["pair_id"]]["created"] -= PAIR_FORGET
+        _, _, new = self.start_pairing()
+        self.assertEqual(list(self.app.pairings), [new["pair_id"]])
+        self.assertGreater(PAIR_FORGET, server.PAIR_WINDOW + CONFIRM_WINDOW)  # never an attempt still under way
+        self.assertEqual(self.client.request("GET", "/v1/pair/" + old["pair_id"], sign=False)[0], 404)
+
+    def test_the_pane_approves_only_with_the_phones_code(self):
+        said = []
+        self.app.console = said.append
+        self.app.open_pairing()
+        _, _, reply = self.start_pairing()
+        self.send_nonce(reply["pair_id"], secrets.token_bytes(16))
+        code = self.app.pairings[reply["pair_id"]]["code"]
+        # Code A is never shown on the Mac: the person types it from the phone.
+        self.assertFalse(any(code in line.replace(" ", "") for line in said), said)
+        for typed in ("", "approve", f"{(int(code) + 1) % 1_000_000:06d}", code[:5]):
+            self.assertIn("no waiting phone shows that code", self.app.approve_code(typed))
+        self.assertEqual(self.app.pairings[reply["pair_id"]]["state"], "pending")
+        self.assertTrue(self.app.approve_code(f"{code[:3]} {code[3:]}").startswith("approved"))
+        self.assertEqual(self.app.pairings[reply["pair_id"]]["state"], "confirm")
+
+    def test_a_pop_up_that_cannot_be_shown_leaves_the_pane_to_approve(self):
+        said = []
+        self.app.console = said.append
+        self.app.ask_for_code = lambda name: None
+        self.app.open_pairing()
+        _, _, reply = self.start_pairing()
+        self.send_nonce(reply["pair_id"], secrets.token_bytes(16))
+        self.assertTrue(self.wait_for(lambda: any("couldn't show the pop-up" in line for line in said)), said)
+        self.assertEqual(self.app.pairings[reply["pair_id"]]["state"], "pending")
+        self.assertTrue(self.app.pairing_open())
+        self.assertTrue(self.app.approve_code(self.app.pairings[reply["pair_id"]]["code"]).startswith("approved"))
+
+    def test_the_pop_up_tells_a_cancel_from_one_that_was_never_shown(self):
+        import subprocess
+        from bell_desk import macui
+        def ran(returncode, stdout=""):
+            return lambda args, **kw: subprocess.CompletedProcess(args, returncode, stdout, "")
+        for window in (True, False):
+            with self.subTest(window=window), patch.object(macui, "window_available", return_value=window):
+                for run, expected in ((ran(0, "123 456\n"), "123 456"), (ran(0), ""), (ran(1), None), (ran(-6), None)):
+                    with patch.object(macui.subprocess, "run", run):
+                        self.assertEqual(macui.ask_for_code("iPhone"), expected)
+                with patch.object(macui.subprocess, "run", side_effect=OSError):
+                    self.assertIsNone(macui.ask_for_code("iPhone"))
+
+    def test_any_script_of_digits_is_read_as_the_code_and_never_crashes(self):
+        self.app.open_pairing()
+        _, _, reply = self.start_pairing()
+        self.send_nonce(reply["pair_id"], secrets.token_bytes(16))
+        code = self.app.pairings[reply["pair_id"]]["code"]
+        fullwidth = "".join(chr(0xFF10 + int(d)) for d in code)
+        self.assertIn("no waiting phone", self.app.approve_code("".join(chr(0xFF10 + int(d)) for d in "000000")))
+        self.assertTrue(self.app.approve_code(fullwidth).startswith("approved"))
+
+    def test_the_pop_up_reads_any_script_of_digits(self):
+        self.app.ask_for_code = lambda name: "".join(chr(0xFF10 + int(d)) for d in self.current_code())
+        self.app.paired = lambda pair_id, name, code: None
+        self.app.open_pairing()
+        _, _, reply = self.start_pairing()
+        self.send_nonce(reply["pair_id"], secrets.token_bytes(16))
+        self.assertTrue(self.wait_for(lambda: self.app.pairings[reply["pair_id"]]["state"] == "confirm"))
+
+    def test_a_nonce_after_pairing_closes_opens_no_pop_up(self):
+        asked = []
+        self.app.ask_for_code = lambda name: asked.append(name) or ""
+        for close in ("time ran out", "another phone confirmed"):
+            with self.subTest(close=close):
+                self.app.pairings.clear()
+                self.app.open_pairing()
+                _, _, reply = self.start_pairing()
+                self.app.pairing_until = time.time() - 1 if close == "time ran out" else 0.0
+                self.assertEqual(self.send_nonce(reply["pair_id"], secrets.token_bytes(16)),
+                                 (403, {"error": "pairing_closed"}))
+        time.sleep(0.1)
+        self.assertEqual(asked, [])
+
+    def test_an_approved_phone_can_still_prove_code_b_after_pairing_closes(self):
+        self.app.open_pairing()
+        pair_id = self.approve()
+        self.app.pairing_until = time.time() - 1
+        self.assertEqual(self.confirm(pair_id, crypto.confirm_proof(self.client.key))[0], 200)
+
+    def test_the_confirmed_answer_is_signed_for_that_pairing(self):
+        self.app.open_pairing()
+        pair_id = self.approve()
+        status, done = self.client.request("POST", f"/v1/pair/{pair_id}/confirm",
+                                           json.dumps({"proof": crypto.confirm_proof(self.client.key)}).encode(), sign=False)
+        self.assertEqual(status, 200)
+        self.assertEqual(done["ack"], crypto.confirm_ack(self.client.key, pair_id, self.client.device_id))
+        self.assertNotEqual(done["ack"], crypto.confirm_ack(self.client.key, "0" * 32, self.client.device_id))
+
+    def test_one_waiting_phone_per_address_and_three_in_all(self):
+        self.app.open_pairing()
+        self.start_pairing()
+        body = json.dumps({"device_pub": crypto.b64e(crypto.public_bytes(crypto.new_private_key()))}).encode()
+        self.assertEqual(self.client.request("POST", "/v1/pair", body, sign=False), (429, {"error": "too_many_pairings"}))
+        fresh = lambda: crypto.public_bytes(crypto.new_private_key())  # noqa: E731
+        self.assertIsNotNone(self.app.pair_request(fresh(), "second", "10.0.0.2"))
+        self.assertIsNotNone(self.app.pair_request(fresh(), "third", "10.0.0.3"))
+        self.assertIsNone(self.app.pair_request(fresh(), "fourth", "10.0.0.4"))
 
     def test_a_wrong_code_refuses_and_pauses_pairing(self):
         told = []
         self.app.ask_for_code = lambda name: "000000" if self.current_code() != "000000" else "111111"
         self.app.tell = told.append
+        self.app.open_pairing()
         _, _, reply = self.start_pairing()
         self.send_nonce(reply["pair_id"], secrets.token_bytes(16))
         self.assertTrue(self.wait_for(lambda: self.app.pairings[reply["pair_id"]]["state"] == "denied"))
@@ -524,16 +836,12 @@ class ServerTests(unittest.TestCase):
         told = []
         self.app.ask_for_code = lambda name: ""
         self.app.tell = told.append
+        self.app.open_pairing()
         _, _, reply = self.start_pairing()
         self.send_nonce(reply["pair_id"], secrets.token_bytes(16))
         self.assertTrue(self.wait_for(lambda: self.app.pairings[reply["pair_id"]]["state"] == "denied"))
         self.assertEqual(told, [])
         self.assertFalse(self.app.pairing_open())
-
-    def test_only_one_phone_can_be_waiting_at_a_time(self):
-        self.start_pairing()
-        body = json.dumps({"device_pub": crypto.b64e(crypto.public_bytes(crypto.new_private_key()))}).encode()
-        self.assertEqual(self.client.request("POST", "/v1/pair", body, sign=False)[0], 429)
 
     def test_pair_then_dictate_then_replay(self):
         self.app.open_pairing()

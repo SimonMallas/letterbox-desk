@@ -133,9 +133,17 @@ struct ConversationPane: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("WHAT GOES OUT").font(.system(size: 9, weight: .semibold, design: .monospaced)).tracking(1.2)
                 ForEach(model.draft.recipients, id: \.self) { seat in
+                    // The same lines the listener adds to each copy: others named on every copy but the conversation's own.
+                    let others = model.draft.recipients.filter { $0 != seat }
                     Text(seat == model.agent && model.conversation?.latest.isEmpty == false
-                         ? "\(seat) · a reply in this conversation: exactly what you typed\(model.draft.picture == nil ? "" : ", with the picture")"
-                         : "\(seat) · a new letter: this message\(model.draft.picture == nil ? "" : " and the picture") only, not the conversation")
+                         ? "\(seat) · a reply in this conversation: what you typed"
+                         : "\(seat) · a new letter, not the conversation: what you typed")
+                    if seat != model.agent && !others.isEmpty {
+                        Text("  then: Also addressed to: \(others.joined(separator: ", ")) (intended recipients; delivery and reading are not guaranteed).")
+                    }
+                    if model.draft.picture != nil {
+                        Text("  then: Desk picture: where the picture is saved, its size and fingerprint")
+                    }
                 }
                 if model.agent != nil && !model.draft.recipients.contains(model.agent!) {Text("This does not answer the open conversation.").foregroundStyle(Palette.warm)}
             }.font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)

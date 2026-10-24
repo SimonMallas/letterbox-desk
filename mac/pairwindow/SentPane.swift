@@ -104,7 +104,8 @@ struct SentCard: View {
     private func seatRow(_ result: SeatOutcome) -> some View {
         let line = Words.seat(result)
         let key = "\(item.request_id)/\(result.to)"
-        let canResend = item.text != nil && (result.status == "not_confirmed" || result.status == "not_attempted")
+        let canResend = item.text != nil && result.retried != true
+            && (result.status == "not_confirmed" || result.status == "not_attempted")
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 6) {
                 Text(line.1 ? "\u{2713}" : (result.status == "sending" ? "\u{2026}" : "!"))

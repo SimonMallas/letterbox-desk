@@ -1,3 +1,4 @@
+import http.client
 import json
 import os
 import pathlib
@@ -23,7 +24,7 @@ from bell_desk import cli  # noqa: E402
 from bell_desk.letterbox import doorbell, find_root, pointer_path, roster  # noqa: E402
 from bell_desk.phone import PhoneSide  # noqa: E402
 from bell_desk.sender import PinnedHelper, file_sha256  # noqa: E402
-from bell_desk.server import App, DeskHTTPServer  # noqa: E402
+from bell_desk.server import App, DeskHTTPServer, phone_letter_id  # noqa: E402
 from bell_desk.store import State  # noqa: E402
 from bell_desk.watcher import read_header  # noqa: E402
 from tests.test_listener import FAKE_HELPER, ISOLATED_PATH, letter, make_bus  # noqa: E402
@@ -116,9 +117,41 @@ class InboxTests(DeskSetup):
         self.assertTrue(again[0]["read"])
 
     def test_bad_ids_open_nothing(self):
-        for bad in ("../bob/inbox/x", "-rf", "", None, 7, "a" * 129):
+        for bad in ("../bob/inbox/x", "-rf", "", None, 7, "a" * 244):
             self.assertIsNone(self.mail.open(bad))
             self.assertIsNone(self.mail.letter(bad))
+
+    def test_an_unread_letter_is_listed_however_many_names_sort_above_it(self):
+        """The list keeps the newest 200 names, but a letter that rang is unread, and unread letters always show."""
+        for i in range(200):
+            self.to_desk(f"z{i:04d}")
+        low = "0" * 243
+        self.to_desk(low)
+        self.assertIn(low, [m["id"] for m in self.mail.inbox()])
+        self.mail.open(low)
+        self.assertNotIn(low, [m["id"] for m in self.mail.inbox()])
+
+    def test_the_phone_rings_only_for_letters_the_desk_shows(self):
+        """One id limit for the half that rings and the half that shows (the Letterbox SPEC allows 1-243)."""
+        from bell_desk.watcher import mail_event
+        fits = "2026-10-07T090000-bob-info-" + "x" * 200 + "-1111"
+        too_long = "2026-10-07T090000-bob-info-" + "x" * 220 + "-2222"
+        self.assertEqual((len(fits), len(too_long)), (232, 252))
+        for letter_id, expected in ((fits, True), (too_long, False)):
+            path = self.to_desk(letter_id)
+            rings = mail_event("desk", letter_id + ".md", read_header(path)) is not None
+            shown = any(m["id"] == letter_id for m in self.mail.inbox())
+            self.assertEqual((rings, shown), (expected, expected), len(letter_id))
+
+    def test_a_long_header_is_read_as_far_as_the_letterbox_reads_one(self):
+        """The Letterbox's own query reads up to 32 KB of header; the Desk rings for and shows the same letters."""
+        from bell_desk.watcher import mail_event
+        for letter_id, padding, expected in (("2026-10-07T090000-bob-info-wide-1111", 10_000, True),
+                                             ("2026-10-07T090000-bob-info-huge-2222", 33_000, False)):
+            path = self.to_desk(letter_id, note="x" * padding)
+            rings = mail_event("desk", letter_id + ".md", read_header(path) or {}) is not None
+            shown = any(m["id"] == letter_id for m in self.mail.inbox())
+            self.assertEqual((rings, shown), (expected, expected), padding)
 
     def test_time_falls_back_to_the_id(self):
         self.assertEqual(letter_time({"sent": "2026-10-07T17:54:14Z"}, "x"), "2026-10-07T17:54:14Z")
@@ -127,6 +160,59 @@ class InboxTests(DeskSetup):
 
 
 class SentTests(DeskSetup):
+    def unconfirmed_copy_then_traffic(self, rid="11111111-1111-4111-8111-111111111111"):
+        """A copy to alice the Mac couldn't confirm, four days ago, then 100 ordinary sends to bob."""
+        four_days_ago = int(time.time()) - 4 * 86400
+        self.state._append_request({"request_id": rid, "state": "pending", "seats": ["alice"], "at": four_days_ago,
+                                    "text": "Please roll back the release", "re": "", "via": "mac", "retry_of": ""})
+        self.state._append_request({"request_id": rid, "state": "final", "at": four_days_ago, "result": {
+            "status": "not_confirmed", "request_id": rid,
+            "results": [{"to": "alice", "status": "not_confirmed", "reason": "helper_timeout",
+                         "text": "Please roll back the release"}]}})
+        for i in range(100):
+            r = f"22222222-2222-4222-8222-{i:012x}"
+            self.state.request_begin(r, ["bob"], text=f"note {i}", via="mac")
+            self.state.request_finish(r, {"status": "sent", "request_id": r,
+                                          "results": [{"to": "bob", "status": "published", "id": "x", "text": f"note {i}"}]})
+        return rid
+
+    def on_screen(self, rid):
+        self.sent.clear()
+        self.bridge.push(force=True)
+        mail = next(m for m in self.sent if m.get("type") == "mail")
+        conversations = next(m for m in self.sent if m.get("type") == "conversations")
+        alice = next(c for c in conversations["conversations"] if c["seat"] == "alice")
+        return (any(item["request_id"] == rid for item in mail["sent"]),
+                any(m.get("request_id") == rid for m in alice["messages"]))
+
+    def test_a_copy_the_mac_couldnt_confirm_stays_on_screen_until_the_person_chooses(self):
+        rid = self.unconfirmed_copy_then_traffic()
+        self.assertEqual(self.on_screen(rid), (True, True))
+        self.bridge.conversations.update({"action": "done", "seat": "alice"})   # the person chose: Done
+        self.assertEqual(self.on_screen(rid), (False, False))
+
+    def test_an_attempt_a_later_one_replaced_offers_no_send_again(self):
+        first, second, third = (f"4444444{i}-4444-4444-8444-444444444444" for i in range(3))
+        chain = f"{first}/alice"
+        for rid, status, retry_of in ((first, "not_confirmed", ""), (second, "not_confirmed", chain), (third, "published", chain)):
+            self.state.request_begin(rid, ["alice"], text="Roll back", via="mac", retry_of=retry_of)
+            self.state.request_finish(rid, {"status": "sent" if status == "published" else status, "request_id": rid,
+                                            "results": [{"to": "alice", "status": status, "text": "Roll back"}]})
+        sent = {item["request_id"]: item["results"][0] for item in self.bridge.sent_view()}
+        self.assertEqual([sent[rid].get("retried", False) for rid in (first, second, third)], [True, True, False])
+        self.assertEqual([sent[rid]["status"] for rid in (first, second)], ["not_confirmed", "not_confirmed"])
+        # The mark is for the Sent view only: the stored record is unchanged.
+        self.assertNotIn("retried", self.state.request_result(first)["results"][0])
+
+    def test_sending_it_again_is_also_a_choice(self):
+        rid = self.unconfirmed_copy_then_traffic()
+        retry = "33333333-3333-4333-8333-333333333333"
+        self.state.request_begin(retry, ["alice"], text="Please roll back the release", via="mac", retry_of=f"{rid}/alice")
+        self.state.request_finish(retry, {"status": "sent", "request_id": retry, "results": [
+            {"to": "alice", "status": "published", "id": "y", "text": "Please roll back the release"}]})
+        self.assertEqual(self.on_screen(rid)[1], False)
+        self.assertEqual(self.state.awaiting_choice(), set())
+
     def test_what_was_typed_is_kept_with_each_seats_outcome(self):
         self.app.compose_from_mac(["alice", "bob"], "Morning both.")
         body = json.dumps({"request_id": str(uuid.uuid4()), "to": "bob", "text": "From the phone."}).encode()
@@ -694,6 +780,450 @@ sys.exit(cli.main(sys.argv[2:]))
                         process.terminate()
                         process.wait(timeout=5)
 
+    SERVE_CHILD = """import pathlib, subprocess, sys, threading, time
+from bell_desk import cli, macui
+macui.WINDOW = '/nonexistent/bell-pair'
+original = subprocess.Popen
+def start(args, *a, **kw):
+    if args[0] == 'dns-sd':
+        class Bonjour:
+            def terminate(self): pass
+        return Bonjour()
+    return original(args, *a, **kw)
+subprocess.Popen = start
+class Bar:
+    def __init__(self, on_message, hint=False): self.on_message = on_message
+    def start(self):
+        def click():
+            while not pathlib.Path(sys.argv[1]).exists(): time.sleep(0.05)
+            self.on_message({"pair_phone": True})
+        threading.Thread(target=click, daemon=True).start()
+        return True
+    def send(self, message): pass
+    def stop(self): pass
+macui.MenuBar = Bar
+import os
+if os.environ.get("SLOW_REFRESH"):   # a big letter history makes the listener's refresh slow
+    from bell_desk import desk
+    _push = desk.DeskBridge.push
+    def slow_push(self, force=False):
+        time.sleep(8)
+        return _push(self, force)
+    desk.DeskBridge.push = slow_push
+if os.environ.get("HOLD_SEND"):      # a letter being sent holds the send lock, as a slow helper would
+    from bell_desk import server
+    _init = server.App.__init__
+    def init(self, *a, **k):
+        _init(self, *a, **k)
+        def hold():
+            while not pathlib.Path(sys.argv[1] + ".send").exists(): time.sleep(0.05)
+            with self.send_lock: time.sleep(float(os.environ["HOLD_SEND"]))
+        threading.Thread(target=hold, daemon=True).start()
+    server.App.__init__ = init
+if os.environ.get("SLOW_START"):      # the listener holds its lock but is still starting, as on a busy Mac
+    from bell_desk import desk
+    _mail_init = desk.DeskMail.__init__
+    def slow_mail_init(self, *a, **k):
+        time.sleep(float(os.environ["SLOW_START"]))
+        _mail_init(self, *a, **k)
+    desk.DeskMail.__init__ = slow_mail_init
+if os.environ.get("WALL_CLOCK_BACK"):  # the listener's wall clock set back, as a person or a time server might
+    _time = time.time
+    time.time = lambda: _time() - float(os.environ["WALL_CLOCK_BACK"])
+sys.exit(cli.main(sys.argv[2:]))
+"""
+
+    def serve_child(self, root, phone=False, devices=None, slow_refresh=False, hold_send=0, wall_clock_back=0,
+                    slow_start=0):
+        """A real `bell-desk serve` in a child process: no window, a stand-in menu bar whose Pair a phone… is
+        clicked when the file <root>/clicked appears. Returns (process, state_dir, hello)."""
+        bus = os.path.join(root, "bus")
+        make_bus(bus, ["desk", "alice"])
+        helper = os.path.join(root, "helper.sh")
+        pathlib.Path(helper).write_text("#!/bin/sh\n")
+        state_dir = os.path.join(root, "state")
+        state = State(state_dir)
+        state.save_config({"helper": helper, "helper_sha256": file_sha256(helper), "helper_kind": "letterbox",
+                           "bus": bus, "seats": ["alice"], "phone": phone})
+        for device_id in devices or []:
+            state.add_device(device_id, {"name": "iPhone"})
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = self.child_port = probe.getsockname()[1]
+        env = {**os.environ, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
+        env.pop("XPC_SERVICE_NAME", None)
+        if slow_refresh:
+            env["SLOW_REFRESH"] = "1"
+        if hold_send:
+            env["HOLD_SEND"] = str(hold_send)
+        if wall_clock_back:
+            env["WALL_CLOCK_BACK"] = str(wall_clock_back)
+        if slow_start:
+            env["SLOW_START"] = str(slow_start)
+        process = subprocess.Popen([sys.executable, "-c", self.SERVE_CHILD, os.path.join(root, "clicked"), "--state",
+                                    state_dir, "serve", "--host", "127.0.0.1", "--port", str(port)],
+                                   cwd=str(pathlib.Path(__file__).resolve().parents[1]), env=env,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: (process.terminate(), process.wait(timeout=5)))
+
+        def hello():
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
+                conn.request("GET", "/v1/hello")
+                return json.loads(conn.getresponse().read())
+            except OSError:
+                return None
+
+        deadline = time.monotonic() + 15
+        while service.lock_free(state_dir) and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertIsNone(process.poll(), process.stderr.read() if process.poll() is not None else "")
+        return process, state_dir, hello
+
+    def wait_for_pairing(self, hello, seconds=10):
+        deadline = time.monotonic() + seconds
+        answer = None
+        while time.monotonic() < deadline and not (answer and answer["pairing_open"]):
+            answer = hello()
+            time.sleep(0.05)
+        return bool(answer and answer["pairing_open"])
+
+    def test_pair_a_phone_in_the_menu_turns_the_phone_on_and_opens_pairing(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root)
+            self.assertIsNone(hello(), "the phone port was open before anyone asked")
+            pathlib.Path(root, "clicked").touch()
+            self.assertTrue(self.wait_for_pairing(hello))
+            self.assertTrue(State(state_dir).config()["phone"])
+
+    def test_bell_desk_pair_asks_the_running_listener_to_open_pairing(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root)
+            with redirect_stdout(StringIO()) as out:
+                self.assertEqual(cli.main(["--state", state_dir, "pair"]), 0)
+            self.assertIn("3 minutes", out.getvalue())
+            self.assertTrue(self.wait_for_pairing(hello))
+            self.assertTrue(State(state_dir).config()["phone"])
+
+    def test_bell_desk_pair_is_answered_even_while_the_listener_is_still_starting(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root, slow_start=2)
+            with redirect_stdout(StringIO()) as out, redirect_stderr(StringIO()) as err:
+                self.assertEqual(cli.main(["--state", state_dir, "pair"]), 0, err.getvalue())
+            self.assertIn("3 minutes", out.getvalue())
+            self.assertTrue(self.wait_for_pairing(hello))
+
+    def test_bell_desk_pair_reports_when_the_phone_side_cannot_start(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root)
+            with socket.socket() as busy:
+                busy.bind(("127.0.0.1", self.child_port))
+                busy.listen()
+                with redirect_stdout(StringIO()) as out, redirect_stderr(StringIO()) as err:
+                    code = cli.main(["--state", state_dir, "pair"])
+            self.assertEqual(code, 1, out.getvalue())
+            self.assertIn("could not start", err.getvalue())
+            self.assertNotIn("3 minutes", out.getvalue())
+
+    def test_a_pair_request_nobody_answers_is_withdrawn_and_a_leftover_one_is_ignored(self):
+        with tempfile.TemporaryDirectory() as root:
+            state_dir = os.path.join(root, "state")
+            state = State(state_dir)
+            holder = State(state_dir)
+            holder.lock_instance()   # a listener that never reads pair-request, like an older version
+            try:
+                with redirect_stderr(StringIO()) as err:
+                    self.assertEqual(cli.main(["--state", state_dir, "pair"]), 1)
+            finally:
+                holder.unlock_instance()
+            self.assertIn("did not answer", err.getvalue())
+            self.assertEqual([n for n in os.listdir(state_dir) if n.startswith("pair-request-")], [])
+        with tempfile.TemporaryDirectory() as root:
+            cli.request_pairing(State(os.path.join(root, "state")))   # left over from before
+            _, state_dir, hello = self.serve_child(root)
+            self.assertFalse(self.wait_for_pairing(hello, seconds=5))
+
+    def test_bell_desk_pair_is_answered_even_while_the_refresh_is_slow(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root, slow_refresh=True)
+            time.sleep(3)   # let a slow refresh begin
+            with redirect_stdout(StringIO()) as out, redirect_stderr(StringIO()) as err:
+                code = cli.main(["--state", state_dir, "pair"])
+            self.assertEqual(code, 0, err.getvalue())
+            self.assertIn("3 minutes", out.getvalue())
+
+    def test_bell_desk_pair_with_the_phone_on_does_not_wait_for_a_letter_being_sent(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root, phone=True, devices=["old-phone"], hold_send=6)
+            pathlib.Path(root, "clicked.send").touch()
+            time.sleep(0.5)
+            started = time.monotonic()
+            with redirect_stdout(StringIO()), redirect_stderr(StringIO()) as err:
+                self.assertEqual(cli.main(["--state", state_dir, "pair"]), 0, err.getvalue())
+            self.assertLess(time.monotonic() - started, 3)
+            self.assertTrue(hello()["pairing_open"])
+
+    def test_a_pair_request_the_cli_gave_up_on_never_opens_pairing_later(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root, hold_send=5)
+            pathlib.Path(root, "clicked.send").touch()
+            time.sleep(0.5)
+            with patch("bell_desk.cli.PAIR_WAIT", 2), redirect_stdout(StringIO()), redirect_stderr(StringIO()) as err:
+                self.assertEqual(cli.main(["--state", state_dir, "pair"]), 1)
+            self.assertIn("not open", err.getvalue())
+            time.sleep(6)   # the letter finishes sending and the phone side can switch again
+            answer = hello()
+            self.assertFalse(answer and answer["pairing_open"], answer)
+
+    def test_a_pair_request_the_cli_gave_up_on_stays_late_whatever_the_wall_clock_says(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root, hold_send=5, wall_clock_back=86400)
+            pathlib.Path(root, "clicked.send").touch()
+            time.sleep(0.5)
+            with patch("bell_desk.cli.PAIR_WAIT", 2), redirect_stdout(StringIO()), redirect_stderr(StringIO()) as err:
+                self.assertEqual(cli.main(["--state", state_dir, "pair"]), 1)
+            self.assertIn("not open", err.getvalue())
+            time.sleep(6)
+            self.assertIsNotNone(hello())
+            self.assertFalse(hello()["pairing_open"])
+
+    def test_a_retry_gets_its_own_answer_not_a_late_one_from_before(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root, hold_send=5)
+            pathlib.Path(root, "clicked.send").touch()
+            time.sleep(0.5)
+            with patch("bell_desk.cli.PAIR_WAIT", 2), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                self.assertEqual(cli.main(["--state", state_dir, "pair"]), 1)
+            with redirect_stdout(StringIO()) as out, redirect_stderr(StringIO()) as err:
+                code = cli.main(["--state", state_dir, "pair"])   # the person tries again, as told
+            answer = hello()
+            # Whatever the retry reports must be what happened.
+            self.assertEqual((code == 0), bool(answer and answer["pairing_open"]), (code, out.getvalue(), err.getvalue(), answer))
+            self.assertEqual(code, 0, err.getvalue())
+            self.assertIn("3 minutes", out.getvalue())
+
+    def test_an_unreadable_pair_request_opens_nothing(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root, phone=True, devices=["old-phone"])
+            for junk in ("", "{", "not json", '{"token": "other", "deadline": 0}'):
+                junk_path = os.path.join(state_dir, "pair-request-00000000000000000000-junk.json")
+                pathlib.Path(junk_path).write_text(junk)   # not a whole request from Letterbox Desk
+                deadline = time.monotonic() + 5
+                while os.path.exists(junk_path) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertFalse(os.path.exists(junk_path), "the listener never looked")
+                time.sleep(0.3)
+                self.assertFalse(hello()["pairing_open"], repr(junk))
+
+    def test_a_pair_request_is_written_whole(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = State(root)
+            seen = []
+            real_replace = os.replace
+            def watch(src, dst):
+                seen.append((os.path.basename(dst), json.loads(pathlib.Path(src).read_text())))
+                return real_replace(src, dst)
+            with patch("bell_desk.cli.os.replace", watch):
+                path = cli.request_pairing(state, 123.0, "abc")
+            self.assertEqual(seen, [(os.path.basename(path), {"token": "abc", "deadline": 123.0})])
+            self.assertTrue(os.path.basename(path).startswith("pair-request-") and path.endswith("-abc.json"))
+            self.assertEqual(cli.claim_pair_requests(state), [("abc", 123.0)])
+
+    def test_claiming_one_pair_request_never_removes_another(self):
+        """A retry published while an older request is being claimed stays for the next claim."""
+        with tempfile.TemporaryDirectory() as root:
+            state = State(root)
+            cli.request_pairing(state, 0.0, "aaaa")
+            real_remove = os.remove
+            def retry_arrives_mid_claim(path):
+                if path.endswith("-aaaa.json"):
+                    cli.request_pairing(state, 0.0, "bbbb")
+                return real_remove(path)
+            with patch("bell_desk.cli.os.remove", retry_arrives_mid_claim):
+                self.assertEqual(cli.claim_pair_requests(state), [("aaaa", 0.0)])
+            self.assertEqual(cli.claim_pair_requests(state), [("bbbb", 0.0)])
+
+    def test_only_regular_request_files_are_claimed(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = State(root)
+            os.mkdir(os.path.join(root, "pair-request-dir.json"))
+            elsewhere = os.path.join(root, "elsewhere.json")
+            pathlib.Path(elsewhere).write_text('{"token": "link", "deadline": 0}')
+            os.symlink(elsewhere, os.path.join(root, "pair-request-1-link.json"))
+            cli.request_pairing(state, 0.0, "real")
+            self.assertEqual(cli.claim_pair_requests(state), [("real", 0.0)])
+            self.assertTrue(os.path.exists(elsewhere), "a link's target is never touched")
+
+    def test_odd_entries_left_in_the_state_folder_never_stop_the_listener_starting(self):
+        with tempfile.TemporaryDirectory() as root:
+            state_dir = os.path.join(root, "state")
+            os.makedirs(os.path.join(state_dir, "pair-result-dir.json"))
+            os.makedirs(os.path.join(state_dir, "pair-request-dir.json"))
+            pathlib.Path(state_dir, "pair-result-old.json").write_text("{}")
+            _, state_dir, hello = self.serve_child(root, phone=True, devices=["old-phone"])
+            with redirect_stdout(StringIO()) as out, redirect_stderr(StringIO()) as err:
+                self.assertEqual(cli.main(["--state", state_dir, "pair"]), 0, err.getvalue())
+            self.assertFalse(os.path.exists(os.path.join(state_dir, "pair-result-old.json")))
+
+    def swap_at_open(self, make):
+        """Replace a scanned request with something else right before it is opened, as a racing writer could, at
+        whichever open the claim uses."""
+        import builtins
+        from contextlib import ExitStack
+        state = {"done": False}
+        def wrap(real):
+            def opener(path, *args, **kwargs):
+                name = os.path.basename(str(path))
+                if name.startswith("pair-request-") and name.endswith(".json") and not state["done"]:
+                    state["done"] = True
+                    os.remove(path)
+                    make(path)
+                return real(path, *args, **kwargs)
+            return opener
+        stack = ExitStack()
+        stack.enter_context(patch("bell_desk.cli.os.open", wrap(os.open)))
+        stack.enter_context(patch.object(builtins, "open", wrap(builtins.open)))
+        return stack
+
+    def test_a_request_swapped_for_a_link_is_never_read_through_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = State(os.path.join(root, "state"))
+            outside = os.path.join(root, "outside.json")
+            pathlib.Path(outside).write_text('{"token": "swapped", "deadline": 777}')
+            cli.request_pairing(state, 123.0, "swapped")
+            with self.swap_at_open(lambda path: os.symlink(outside, path)):
+                claimed = cli.claim_pair_requests(state)
+            self.assertEqual(claimed, [])
+            self.assertEqual(pathlib.Path(outside).read_text(), '{"token": "swapped", "deadline": 777}')
+
+    def test_a_request_swapped_for_a_pipe_never_blocks_the_claim(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = State(root)
+            cli.request_pairing(state, 0.0, "piped")
+            done = []
+            with self.swap_at_open(os.mkfifo):
+                worker = threading.Thread(target=lambda: done.append(cli.claim_pair_requests(state)), daemon=True)
+                worker.start()
+                worker.join(2)
+            if worker.is_alive():   # unblock the stuck reader so the test process can finish
+                with open(os.path.join(root, [n for n in os.listdir(root) if n.startswith("pair-request-")][0]), "w"):
+                    pass
+            self.assertEqual(done, [[]], "the claim blocked on a pipe")
+
+    def test_the_pair_thread_survives_a_bad_entry_and_keeps_answering(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root, phone=True, devices=["old-phone"])
+            os.mkdir(os.path.join(state_dir, "pair-request-dir.json"))
+            time.sleep(1.2)   # two polls with the directory there
+            with redirect_stdout(StringIO()) as out, redirect_stderr(StringIO()) as err:
+                self.assertEqual(cli.main(["--state", state_dir, "pair"]), 0, err.getvalue())
+            self.assertIn("3 minutes", out.getvalue())
+
+    def test_a_withdrawn_pair_request_is_never_claimed(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = State(root)
+            mine = cli.request_pairing(state, 0.0, "mine")
+            cli.request_pairing(state, 0.0, "theirs")
+            os.remove(mine)
+            self.assertEqual(cli.claim_pair_requests(state), [("theirs", 0.0)])
+
+    def test_bell_desk_pair_with_nothing_running_says_so(self):
+        with tempfile.TemporaryDirectory() as root:
+            with redirect_stderr(StringIO()) as err:
+                self.assertEqual(cli.main(["--state", root, "pair"]), 1)
+            self.assertIn("isn't running", err.getvalue())
+            self.assertEqual([n for n in os.listdir(root) if n.startswith("pair-request-")], [])
+
+    def test_turning_the_phone_on_with_none_paired_opens_pairing(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root)
+            with redirect_stdout(StringIO()):
+                self.assertEqual(cli.main(["--state", state_dir, "phone", "enable"]), 0)
+            self.assertTrue(self.wait_for_pairing(hello))
+
+    def test_turning_the_phone_on_with_a_phone_paired_keeps_pairing_closed(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, state_dir, hello = self.serve_child(root, devices=["old-phone"])
+            with redirect_stdout(StringIO()):
+                self.assertEqual(cli.main(["--state", state_dir, "phone", "enable"]), 0)
+            deadline = time.monotonic() + 10
+            answer = None
+            while time.monotonic() < deadline and answer is None:
+                answer = hello()
+                time.sleep(0.05)
+            time.sleep(2.5)  # one more listener tick
+            self.assertEqual(hello()["pairing_open"], False)
+
+    def update(self, root, status, installed=None, lock_free=True):
+        ours = service.program(os.path.dirname(sys.executable), root)
+        with patch("bell_desk.service.status", return_value=status), \
+                patch("bell_desk.service.installed_program", return_value=ours if installed == "ours" else installed), \
+                patch("bell_desk.service.lock_free", return_value=lock_free), \
+                patch("bell_desk.service.install", return_value=(True, "running now")) as install, \
+                redirect_stdout(StringIO()) as out, redirect_stderr(StringIO()) as err:
+            code = cli.main(["--state", root, "service", "update"])
+        return code, install.call_count, out.getvalue() + err.getvalue()
+
+    def test_service_update_restarts_this_installs_running_login_item(self):
+        with tempfile.TemporaryDirectory() as root:
+            code, installs, said = self.update(root, "running, pid 42", installed="ours", lock_free=False)
+        self.assertEqual((code, installs), (0, 1))
+        self.assertIn("restarted", said)
+
+    def test_service_update_knows_its_own_install_through_a_symlinked_path(self):
+        with tempfile.TemporaryDirectory() as root:
+            real_bin = os.path.realpath(os.path.dirname(sys.executable))
+            link = os.path.join(root, "linked-bin")
+            os.symlink(real_bin, link)
+            same = [os.path.join(link, "bell-desk"), "--state", root, "serve", "--wait-for-lock"]
+            code, installs, _ = self.update(root, "running, pid 42", installed=same, lock_free=False)
+        self.assertEqual((code, installs), (0, 1))
+
+    def test_service_update_restarts_only_its_own_job_and_leaves_an_older_login_item_alone(self):
+        """Only the OS boundary is mocked: the real update and install logic run against real plist files."""
+        import plistlib
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as home:
+            state_dir = os.path.join(home, "state")
+            os.makedirs(state_dir)
+            agents = os.path.join(home, "Library", "LaunchAgents")
+            os.makedirs(agents)
+            ours = service.program(os.path.dirname(sys.executable), state_dir)
+            for label, program in ((service.LABEL, ours),
+                                   (service.LEGACY_LABEL, ["/other/install/bell-desk", "--state", "/other/state", "serve"])):
+                with open(os.path.join(agents, label + ".plist"), "wb") as handle:
+                    plistlib.dump({"Label": label, "ProgramArguments": program}, handle)
+            calls = []
+            fake = lambda *args: calls.append(list(args)) or SimpleNamespace(returncode=0, stdout="", stderr="")  # noqa: E731
+            with patch.dict(os.environ, {"HOME": home}), patch("bell_desk.service._launchctl", fake), \
+                    patch("bell_desk.service.status", return_value="running, pid 42"), \
+                    patch("bell_desk.service.lock_free", return_value=True), \
+                    patch("bell_desk.service.login_item_owns_lock", return_value=True), \
+                    patch("bell_desk.service.answers", return_value=True), patch("bell_desk.service.time.sleep"), \
+                    redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                self.assertEqual(cli.update_service(state_dir), 0)
+            self.assertTrue(os.path.exists(os.path.join(agents, service.LEGACY_LABEL + ".plist")))
+            self.assertFalse(any(service.LEGACY_LABEL in " ".join(call) for call in calls), calls)
+            self.assertIn(["bootout", f"gui/{os.getuid()}/{service.LABEL}"], calls)
+
+    def test_service_update_never_touches_another_installs_login_item(self):
+        with tempfile.TemporaryDirectory() as root:
+            for other in (["/elsewhere/.venv/bin/bell-desk", "--state", root, "serve", "--wait-for-lock"], None):
+                code, installs, said = self.update(root, "running, pid 42", installed=other, lock_free=False)
+                self.assertEqual((code, installs), (5, 0), other)
+                self.assertIn("another", said)
+
+    def test_service_update_asks_to_restart_a_terminal_listener(self):
+        with tempfile.TemporaryDirectory() as root:
+            code, installs, said = self.update(root, "not installed as a login item", lock_free=False)
+        self.assertEqual((code, installs), (3, 0))
+        self.assertIn("type quit", said)
+
+    def test_service_update_with_nothing_running_starts_nothing(self):
+        with tempfile.TemporaryDirectory() as root:
+            code, installs, _ = self.update(root, "not installed as a login item")
+        self.assertEqual((code, installs), (4, 0))
+
     def test_a_login_item_without_the_flag_still_waits_rather_than_standing_down(self):
         self.assertTrue(service.launched_by_login_item({"XPC_SERVICE_NAME": service.LABEL}))
         self.assertFalse(service.launched_by_login_item({"XPC_SERVICE_NAME": "com.example.other"}))
@@ -794,6 +1324,43 @@ class ConversationTests(DeskSetup):
         result=self.view.send({'agent':'alice','to':['bob'],'text':'New'})
         self.assertEqual(result['results'][0]['re'],'')
 
+    def test_every_letter_read_stays_read_however_many_there_are(self):
+        ids=[f'2026-10-07T090000-bob-info-r-{i:05d}' for i in range(2100)]
+        for letter_id in ids:self.to_desk(letter_id)
+        self.view.update({'action':'read','seat':'bob'})
+        restarted=DeskMail(self.bus,self.state,['alice','bob'])
+        self.assertEqual(sum(not m['read'] for m in restarted.inbox()),0)
+        # Marks for letters no longer in the mailbox are dropped, so the record never outgrows it.
+        os.remove(os.path.join(self.bus,'desk','inbox',ids[0]+'.md'))
+        self.to_desk('2026-10-08T090000-bob-info-new')
+        restarted.open('2026-10-08T090000-bob-info-new')
+        self.assertEqual(sorted(self.state.read_ids()),sorted(ids[1:]+['2026-10-08T090000-bob-info-new']))
+
+    def test_a_refresh_reads_only_letters_on_screen_and_only_when_they_change(self):
+        old='2026-01-01T090000-bob-info-old'
+        self.to_desk(old,sent='2026-01-01T09:00:00Z')
+        self.mail.mark_read(old)
+        new='2026-10-07T090000-bob-info-new'
+        path=self.to_desk(new)
+        from bell_desk import conversations
+        def shown():return [m['text'] for c in self.view.snapshot()['conversations'] for m in c['messages']]
+        with patch.object(conversations,'read_letter_text',wraps=conversations.read_letter_text) as reads:
+            self.assertEqual(shown(),['body text that must never leave the Mac'])
+            self.assertEqual([c.args[0] for c in reads.call_args_list],[path])
+            reads.reset_mock()
+            shown()
+            self.assertEqual(reads.call_count,0)
+            pathlib.Path(path).write_text(pathlib.Path(path).read_text()+'and one more line\n')
+            self.assertEqual(shown(),['body text that must never leave the Mac\nand one more line'])
+            self.assertEqual(reads.call_count,1)
+
+    def test_what_goes_out_spells_out_the_line_each_other_copy_gets(self):
+        """The window can't be run here, so this pins its preview to the listener's own words for the added line."""
+        copy=App._copy_text('Hi','bob',['alice','bob','carol'])
+        self.assertEqual(copy,'Hi\n\nAlso addressed to: alice, carol (intended recipients; delivery and reading are not guaranteed).')
+        swift=pathlib.Path(__file__).resolve().parents[1].joinpath('pairwindow','ConversationPane.swift').read_text()
+        self.assertIn('then: Also addressed to: \\(others.joined(separator: ", ")) (intended recipients; delivery and reading are not guaranteed).',swift)
+
     def test_done_keep_and_new_mail_never_change_letter_files(self):
         first=self.to_desk('2026-10-07T090000-bob-info-one')
         self.view.update({'action':'done','seat':'bob'})
@@ -819,7 +1386,7 @@ class ConversationTests(DeskSetup):
         self.app.publish_mail(event)
         self.assertTrue(q.empty());self.assertTrue(self.app.phone_active);self.assertIn(q,self.app.subscribers)
         self.view.update({'action':'settings','rings':True})
-        self.app.publish_mail(event);self.assertEqual(q.get_nowait()['id'],'fixture')
+        self.app.publish_mail(event);self.assertEqual(q.get_nowait()['id'],phone_letter_id('fixture'))
 
     def test_cards_are_removed(self):
         from bell_desk import macui
@@ -1060,10 +1627,12 @@ class ConversationTests(DeskSetup):
 
     def test_incoming_picture_path_never_becomes_file_access(self):
         path=self.to_desk('2026-10-19T120000-bob-info-path')
-        text=pathlib.Path(path).read_text().replace('body text that must never leave the Mac','Desk picture: {"path":"/etc/passwd","size":1,"sha256":"bad"}')
+        text=pathlib.Path(path).read_text().replace('body text that must never leave the Mac','Here it is\nDesk picture: {"path":"/etc/passwd","size":1,"sha256":"bad"}')
         pathlib.Path(path).write_text(text)
         with patch('bell_desk.attachments.inspect_copy',side_effect=AssertionError('incoming file access')):
-            self.assertIn('/etc/passwd',self.view.rows('bob')[0]['text'])
+            shown=[m for c in self.view.snapshot()['conversations'] for m in c['messages']]
+            self.assertIn('\nDesk picture: {"path":"/etc/passwd"',shown[0]['text'])
+            self.assertNotIn('picture_status',shown[0])
 
     def _interrupted_mixed_restart(self, successful_before_stop):
         latest='2026-10-19T120000-alice-info-source'

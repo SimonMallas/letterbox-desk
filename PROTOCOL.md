@@ -11,22 +11,30 @@ both sides must reproduce every value in it.
 
 - Bonjour service `_belldesk._tcp`, instance name `Letterbox Desk`. Default port **8765**.
 - The phone may also be given a host by hand (`desk-mac.local:8765`).
-- `GET /v1/hello` (no auth) → `200 {"server":"bell-desk","version":"1","name":"<mac name>","pairing_open":bool,"server_pub":"<b64>"}`
+- `GET /v1/hello` (no auth) → `200 {"server":"bell-desk","version":"1","name":"<mac name>","pairing_open":bool,"pair_confirm":true,"server_pub":"<b64>"}`.
+  `pair_confirm` means the Mac shows code B (step 7); a phone must not pair with a Mac without it.
 
 ## Encoding
 
 - JSON, UTF-8. Binary values are standard base64 **with** padding.
 - Times are integer Unix seconds unless a field says otherwise.
 - Errors: `4xx {"error":"<code>","reason":"<code>"}`. Codes are listed per endpoint.
+- The phone refuses an answer body over 1 MB as malformed.
 
-## Pairing (X25519, commit-and-reveal nonces, numeric comparison)
+## Pairing (X25519, commit-and-reveal nonces, two codes)
 
-The code depends on a random value from each side, and the Mac commits to its value before it
+Each code depends on a random value from each side, and the Mac commits to its value before it
 sees the phone's. A device in the middle therefore cannot search for keys that make the two
 screens agree: it gets one 1-in-a-million guess per attempt, and every attempt shows in the pane.
+Code A (shown on the phone, typed on the Mac) proves to the Mac which phone it reached. Code B
+(shown on the Mac, typed on the phone) proves to the phone which Mac it reached: a listener the
+person isn't looking at can approve code A for itself, but it can't put code B on the person's Mac.
 
-1. Pairing is open whenever the listener runs, one phone at a time (`429 {"error":"too_many_pairings"}`
-   while one is waiting). After a refused attempt it pauses for 30 s (`pairing_open: false` in `hello`).
+1. Pairing is closed until a person opens it on the Mac: **Pair a phone…** in the menu bar,
+   `bell-desk pair`, or turning the phone on with no phone paired. It then stays open for 3 minutes,
+   and closes as soon as a phone finishes. Up to 3 requests may wait, one per source address
+   (`429 {"error":"too_many_pairings"}`). After a refused attempt it pauses for 30 s
+   (`pairing_open: false` in `hello`).
 2. Phone creates an X25519 key pair (CryptoKit `Curve25519.KeyAgreement.PrivateKey`) and sends
    `POST /v1/pair {"device_pub":"<b64 32 bytes>","device_name":"<≤40 chars>"}`
    → `200 {"pair_id":"<32 hex>","server_pub":"<b64 32 bytes>","commitment":"<b64 32 bytes>"}`
@@ -37,6 +45,10 @@ screens agree: it gets one 1-in-a-million guess per attempt, and every attempt s
    `POST /v1/pair/<pair_id>/nonce {"device_nonce":"<b64 16 bytes>"}`
    → `200 {"server_nonce":"<b64 16 bytes>"}`
    → `409 {"error":"nonce_already_set"}` on a second call, `404` for an unknown or finished pairing.
+   A request whose nonce doesn't arrive within 10 s is dropped and frees its slot; no pop-up appears for it.
+   The nonce must also arrive while pairing is still open (`403 {"error":"pairing_closed"}` otherwise), so no new
+   pop-up ever appears after pairing closes. A code already on the Mac's screen can still be typed until its own
+   2 minutes run out, and an approved phone can still finish step 7.
 4. The phone checks the commitment against the revealed `server_nonce`. **If it does not match,
    stop and show "Pairing failed: try again"; never show a code.**
 5. Both sides compute the code:
@@ -44,20 +56,40 @@ screens agree: it gets one 1-in-a-million guess per attempt, and every attempt s
    4 bytes as a big-endian unsigned integer, mod 1 000 000, zero-padded to 6 digits.
    Show it as `461 702`. Once the nonce arrives, the Mac shows a pop-up asking the person to type
    the code from the phone. A typed code equal to the Mac's own approves; a different code or Cancel
-   refuses (and starts the 30 s pause). As a fallback the listener pane prints the code and accepts
-   `approve`/`deny` after a person compares both screens. Nothing is approved before the nonce step.
+   refuses (and starts the 30 s pause). As a fallback, typing `approve` and the phone's 6 digits in the listener
+   pane approves the same way; the pane never shows code A, and a bare `approve` approves nothing. `deny`
+   refuses. Nothing is approved before the nonce step.
+   Approval does not pair the phone yet: the Mac keeps nothing until step 7.
 6. Phone polls `GET /v1/pair/<pair_id>` about once a second
-   → `200 {"state":"pending"|"approved"|"denied"|"expired","device_id":"<16 hex>"?}`.
-   `device_id` is present once approved. `404` for an unknown pair_id.
-7. Shared key (both sides): `shared = X25519(own_private, peer_public)`;
+   → `200 {"state":"pending"|"confirm"|"confirmed"|"denied"|"abandoned"|"expired","device_id":"<16 hex>"?}`.
+   `confirm` means code A matched and the Mac now shows code B. `device_id` is present from `confirm` on.
+   (1.0 Macs answered `approved` here. A 1.0 phone treats only that as paired, so against this Mac it times out
+   with nothing saved instead of keeping a record the Mac never stored.) `404` for an unknown pair_id.
+7. Once approved, the Mac shows code B and the phone asks the person to type it. Both compute
+   `SHA256("belldesk-confirm-v1" ‖ server_pub ‖ device_pub ‖ device_nonce ‖ server_nonce)` the same way as
+   code A. **The phone never displays code B.** It keeps the key in memory only, saves nothing and sends
+   nothing with it until the typed code matches. One wrong code may be retried once; a second ends the
+   attempt with "Nothing was paired" and a best-effort `POST /v1/pair/<pair_id>/abandon` → `200 {"state":"abandoned"}`.
+   On a match the phone sends
+   `POST /v1/pair/<pair_id>/confirm {"proof":"<b64 HMAC-SHA256(key, "belldesk-confirm-v1")>"}`
+   → `200 {"state":"confirmed","device_id":"<16 hex>","ack":"<b64>"}`: only now does the Mac keep the device.
+   `ack = HMAC-SHA256(key, "belldesk-confirmed-v1\n" ‖ pair_id ‖ "\n" ‖ device_id)`. The phone saves its record
+   only after this answer, and only if `ack` verifies, so a forged "confirmed" can't leave it believing it is
+   paired. A late answer for an attempt the person has since left, forgotten or restarted changes nothing. `403 {"error":"bad_proof"}` refuses (and starts the 30 s pause);
+   `404` means the attempt is over, including when 2 minutes have passed since approval. A repeated correct
+   proof gets the same `200`.
+8. Shared key (both sides): `shared = X25519(own_private, peer_public)`;
    `key = HKDF-SHA256(ikm=shared, salt=SHA256(server_pub ‖ device_pub ‖ device_nonce ‖ server_nonce), info="belldesk-v1-auth", L=32)`.
    CryptoKit: `sharedSecretFromKeyAgreement(with:)` then
    `hkdfDerivedSymmetricKey(using: SHA256.self, salt:, sharedInfo:, outputByteCount: 32)`.
-8. `device_id = hex(SHA256(device_pub))[0:16]`. The phone stores `device_id`, `key`, `server_pub`
+9. `device_id = hex(SHA256(device_pub))[0:16]`. The phone stores `device_id`, `key`, `server_pub`
    and the host in the Keychain. The private key is not needed after pairing.
 
-A different `server_pub` on a later `hello` means the Mac was reset: the phone must show
-"Pair with the Mac" again and never send to it with the old key.
+The phone never starts pairing by itself once paired. It tries the saved host first and a discovered
+one only as a fallback; an unsigned `hello` with a different `server_pub` means only that this host is
+not the paired Mac. If no host has the pinned key, or the stream answers `401`, the phone stops sending
+and says so, and pairs again only when the person taps **Pair again**. When a signed stream comes from a
+new address, the phone saves that address.
 
 ## Request authentication (everything except `/v1/hello` and `/v1/pair*`)
 
@@ -105,7 +137,8 @@ data: <sig> <event-json>
 `sig` = `base64(HMAC-SHA256(key, "belldesk-v1-event\n" ‖ event-json-bytes))`. Split on the
 first space, verify the signature over the exact JSON bytes, then parse. Every event carries
 `"stream"` = the nonce of the `GET` that opened it and `"seq"`, counting from 0. The phone
-drops the stream if a signature fails, `stream` differs, or `seq` does not increase by one.
+drops the stream if a line runs past 64 KB, a signature fails, `stream` differs, or `seq`
+does not increase by one.
 
 | `type` | Fields | Meaning |
 |---|---|---|
@@ -113,7 +146,10 @@ drops the stream if a signature fails, `stream` differs, or `seq` does not incre
 | `mail` | `to`, `from`, `letter_type`, `id`, `priority`, `ts`, `for_you` | A ring-eligible letter landed: `priority: now`, any inbox including `desk`'s, not sent by `desk`. `for_you` is true when `to` is `desk`: an agent wrote to the person. Envelope fields only. |
 | `ping` | `now` | Every 15 s. No event for 40 s means the stream is dead: reconnect. |
 
-`id` is the envelope id (the letter's file name without `.md`); show its last 8 characters.
+`id` is the letter's time and short token, `<YYYY-MM-DDTHHMMSS>-<token>`, never its subject. The token
+is the envelope id's last `-`-separated part when that is 8 lowercase hex characters, otherwise the first
+8 hex characters of `SHA256(id)`: the same token `letterbox` prints. Without a leading time, `id` is the
+token alone. Show its last 8 characters.
 `ts` is the envelope's `sent` field, a string. Nothing in an event is a path or a letter body.
 
 ## Dictation: `POST /v1/dictation` (signed)

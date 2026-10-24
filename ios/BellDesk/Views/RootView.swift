@@ -73,6 +73,7 @@ private struct Header: View {
         case .up: return model.macName
         case .connecting: return "Connecting"
         case .down: return "Mac offline"
+        case .untrusted: return "Not verified"
         }
     }
 

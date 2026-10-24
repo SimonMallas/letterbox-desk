@@ -9,6 +9,7 @@ final class Discovery {
     var onDenied: (Bool) -> Void = { _ in }
 
     private var browser: NWBrowser?
+    private var services: [NWEndpoint] = []
     private var service: NWEndpoint?
     private var resolver: NWConnection?
 
@@ -43,9 +44,20 @@ final class Discovery {
         if let service { resolve(service) }
     }
 
+    /// Resolve the next Mac found, or this one again if it is the only one. Every listener advertises
+    /// "Letterbox Desk" and a second Mac's is renamed, so the one picked first need not be the Mac where the
+    /// person opened pairing.
+    func next() {
+        if let service, let at = services.firstIndex(of: service) {
+            self.service = services[(at + 1) % services.count]
+        }
+        refresh()
+    }
+
     private func pick(from results: Set<NWBrowser.Result>) {
+        services = results.map(\.endpoint)
         let preferred = results.first { result in
-            if case .service(let name, _, _, _) = result.endpoint { return name == "Bell on the Desk" }
+            if case .service(let name, _, _, _) = result.endpoint { return name == "Letterbox Desk" }
             return false
         } ?? results.first
         service = preferred?.endpoint

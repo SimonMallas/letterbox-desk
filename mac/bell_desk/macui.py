@@ -30,31 +30,57 @@ TELL = """on run argv
 end run"""
 
 
-def ask_for_code(device_name: str) -> str:
-    """What the person typed, or "" for Cancel, timeout, or no display. Six-box window if built, else a dialog."""
+def ask_for_code(device_name: str):
+    """What the person typed, "" for Cancel or no answer in time, or None when no pop-up could be shown (no screen,
+    or it failed to start), so the attempt can still be approved in the listener pane. Six-box window if built,
+    else a dialog."""
     if window_available():
-        try:
-            done = subprocess.run([WINDOW, "--phone", device_name], capture_output=True, text=True, timeout=130)
-            return done.stdout.strip()
-        except (OSError, subprocess.TimeoutExpired):
-            return ""
-    text = (f"A phone called “{device_name}” wants to pair with Letterbox Desk.\n\n"
-            "Type the 6-digit code shown on the phone:")
+        command, script = [WINDOW, "--phone", device_name], None
+    else:
+        text = (f"A phone called “{device_name}” wants to pair with Letterbox Desk.\n\n"
+                "Type the 6-digit code shown on the phone:")
+        command, script = ["osascript", "-", TITLE, text], ASK
     try:
-        done = subprocess.run(["osascript", "-", TITLE, text], input=ASK, capture_output=True, text=True, timeout=130)
-    except (OSError, subprocess.TimeoutExpired):
+        done = subprocess.run(command, input=script, capture_output=True, text=True, timeout=130)
+    except subprocess.TimeoutExpired:
         return ""
-    return done.stdout.strip()
+    except OSError:
+        return None
+    # Both end with status 0 on Cancel and on giving up; anything else means the pop-up never showed.
+    return done.stdout.strip() if done.returncode == 0 else None
 
 
-def paired(device_name: str):
-    """A moment of confirmation in the pairing window's style; closes itself."""
+_confirm_windows = {}
+
+
+def paired(pair_id: str, device_name: str, code: str):
+    """The phone's code matched: show this Mac's code for the person to type on the phone, until it confirms.
+    Windows are kept by pairing, never by the name a phone gives itself, which two phones can share."""
     if window_available():
         try:
-            subprocess.Popen([WINDOW, "--result", "done", "--phone", device_name],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _confirm_windows[pair_id] = subprocess.Popen(
+                [WINDOW, "--confirm", code, "--phone", device_name],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
         except OSError:
             pass
+    threading.Thread(target=tell, args=(f"Now type {code[:3]} {code[3:]} on “{device_name}” to finish pairing.",),
+                     daemon=True).start()
+
+
+def confirmed(pair_id: str, device_name: str, ok: bool):
+    """The phone proved the code (or gave up): replace that pairing's code window with the outcome."""
+    window = _confirm_windows.pop(pair_id, None)
+    if window:
+        window.terminate()
+    if not window_available():
+        threading.Thread(target=tell, args=("Paired." if ok else "Nothing was paired.",), daemon=True).start()
+        return
+    try:
+        subprocess.Popen([WINDOW, "--result", "done" if ok else "wrong", "--phone", device_name],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
 
 
 def wrong_code(device_name: str):

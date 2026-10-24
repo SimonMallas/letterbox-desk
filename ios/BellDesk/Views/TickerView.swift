@@ -62,7 +62,15 @@ struct TickerView: View {
         TLabel(text: "Not paired yet", color: Palette.ring)
         if model.pairPhase == .failed {
             Text("Pairing failed: try again").tBig()
-            Text("Something didn't check out, so no code is shown. Tap Try again.").tNote()
+            Text("Something didn't check out, so nothing was paired. Tap Try again.").tNote()
+        } else if model.pairPhase == .wrongMacCode {
+            Text("Nothing was paired").tBig()
+            Text("That isn't the code your Mac shows. If your Mac shows no code, this phone may have reached a different Mac on this Wi-Fi.").tNote()
+        } else if case .confirm(let retry) = model.pairPhase {
+            Text("Now type your Mac's code").tBig()
+            Text(retry ? "That isn't the code your Mac shows. Check it and try once more."
+                       : "Your Mac now shows a code. Type it here to finish pairing.").tNote()
+            MacCodeField(retry: retry)
         } else {
             Text("Pair with the Mac").tBig()
             if case .code(let code) = model.pairPhase {
@@ -74,7 +82,7 @@ struct TickerView: View {
                     .foregroundColor(Palette.ink)
                     .padding(.vertical, 6)
             } else {
-                Text("A code will appear here. Your Mac will then show a pop-up: type the code into it.").tNote()
+                Text("On your Mac, choose Pair a phone\u{2026} from the bell in the menu bar. A code will appear here.").tNote()
             }
             HStack(spacing: 8) {
                 Pulse(size: 7, color: Palette.calm)
@@ -90,11 +98,13 @@ struct TickerView: View {
         switch model.pairPhase {
         case .searching: return "Looking for your Mac on this Wi-Fi"
         case .unreachable(let host): return "Can't reach \(host)"
-        case .windowClosed: return "Pairing paused on \(model.macName) for a moment"
+        case .windowClosed: return "Pairing isn't open on \(model.macName)"
+        case .tooOld: return "Update Letterbox Desk on \(model.macName) to pair"
         case .code: return "Waiting for you to type it on the Mac"
+        case .confirm, .confirming: return "Finishing pairing with \(model.macName)"
         case .denied: return "The Mac didn't accept that code"
         case .expired: return "The code expired"
-        case .failed: return ""
+        case .failed, .wrongMacCode: return ""
         }
     }
 
@@ -123,9 +133,20 @@ struct TickerView: View {
     }
 
     @ViewBuilder private var offline: some View {
-        TLabel(text: "Mac offline", color: Palette.ring)
-        Text("Can't reach the listener").tMid()
-        Text("Rings pause until the link is back. Letters are safe in the inbox meanwhile.").tNote()
+        switch model.mistrust {
+        case .keyChanged:
+            TLabel(text: "Not your Mac", color: Palette.ring)
+            Text("This Mac doesn't match the one you paired with").tMid()
+            Text("Bell won't send to it. If you reset Letterbox Desk or changed Mac, tap Pair again.").tNote()
+        case .notRecognised:
+            TLabel(text: "Not recognised", color: Palette.ring)
+            Text("Your Mac no longer recognises this phone").tMid()
+            Text("It may have been unpaired on the Mac. Bell won't send until you pair again.").tNote()
+        case nil:
+            TLabel(text: "Mac offline", color: Palette.ring)
+            Text("Can't reach the listener").tMid()
+            Text("Rings pause until the link is back. Letters are safe in the inbox meanwhile.").tNote()
+        }
     }
 
     @ViewBuilder private var ring: some View {
@@ -363,6 +384,36 @@ private struct LetterCard: View {
             .foregroundColor(head == nil ? Palette.ink2 : Palette.ink)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Where the person types the code the Mac shows. It is checked here; the phone never displays it.
+private struct MacCodeField: View {
+    @EnvironmentObject private var model: AppModel
+    let retry: Bool
+
+    @State private var code = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("000000", text: $code)
+            .font(.mono(42, .medium))
+            .monospacedDigit()
+            .foregroundColor(Palette.ink)
+            .tint(Palette.calm)
+            .keyboardType(.numberPad)
+            .focused($focused)
+            .padding(.vertical, 6)
+            .accessibilityLabel("Code shown on your Mac")
+            .onChange(of: code) { typed in
+                let digits = String(BellCrypto.typedDigits(typed).prefix(6))
+                // Checked only once the field holds just these digits, so tidying it isn't a second try.
+                if digits != typed { code = digits } else if digits.count == 6 { model.submitMacCode(digits) }
+            }
+            .onChange(of: retry) { _ in code = "" }
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { focused = true }
+            }
     }
 }
 
