@@ -5,7 +5,7 @@
 The Mac listener needs Python 3.11 or newer. Its native window uses SwiftUI and AppKit and
 is compiled with the installed Xcode Command Line Tools, not a Mac Xcode project. Its explicit
 macOS 13.0 deployment target is compile-verified; runtime testing here is on macOS 27.
-Older supported systems still need runtime validation. Letterbox Bell explicitly targets iOS 15.0 or newer and needs Xcode to build.
+Older supported systems still need runtime validation. Letterbox Bell explicitly targets iOS 16.0 or newer and needs Xcode to build.
 
 From the repository root, create a development environment:
 

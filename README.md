@@ -42,7 +42,7 @@ You need:
 - [Agent Letterbox](https://agentletterbox.com/) 0.5.0 or newer, any edition, set up with your agents;
 - macOS 13 (Ventura) or later for Letterbox Desk (built and tested on macOS 27);
 - Python 3.11 or newer, or [uv](https://docs.astral.sh/uv/);
-- iOS 15 or later only if you want the Letterbox Bell add-on.
+- iOS 16 or later only if you want the Letterbox Bell add-on.
 
 Get the code, then run the installer from it:
 
