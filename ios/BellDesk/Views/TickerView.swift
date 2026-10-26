@@ -98,7 +98,7 @@ struct TickerView: View {
         switch model.pairPhase {
         case .searching: return "Looking for your Mac on this Wi-Fi"
         case .unreachable(let host): return "Can't reach \(host)"
-        case .windowClosed: return "Pairing isn't open on \(model.macName)"
+        case .windowClosed: return "On \(model.macName), choose Pair a phone\u{2026} from the bell in the menu bar"
         case .tooOld: return "Update Letterbox Desk on \(model.macName) to pair"
         case .code: return "Waiting for you to type it on the Mac"
         case .confirm, .confirming: return "Finishing pairing with \(model.macName)"

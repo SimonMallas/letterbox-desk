@@ -74,7 +74,7 @@ struct Expression {
     static func of(_ face: AppModel.Face) -> Expression {
         switch face {
         case .welcome: return Expression(mouth: .smile, look: CGPoint(x: 0, y: -14))
-        case .pair: return Expression(mouth: .line, look: CGPoint(x: -36, y: 0))
+        case .pair: return Expression(mouth: .line, look: .zero)
         case .paired: return Expression(mouth: .smile, look: CGPoint(x: 6, y: -6), wink: .left)
         case .idle: return Expression(mouth: .smile, look: .zero)
         case .offline: return Expression(mouth: .none, look: CGPoint(x: 0, y: 10))
@@ -141,7 +141,9 @@ final class CharacterLife {
     static func restingLid(_ face: AppModel.Face) -> CGFloat {
         switch face {
         // Half-closed reads as thinking.
-        case .pair, .offline, .sending, .finishing: return 0.35
+        case .offline, .sending, .finishing: return 0.35
+        // Pairing looks straight at you, eyes a little closed: thinking, not sleepy.
+        case .pair: return 0.6
         default: return 1
         }
     }

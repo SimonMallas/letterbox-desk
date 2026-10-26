@@ -146,7 +146,7 @@ Press and hold **LETTERBOX BELL** at the top of the phone's screen.
 | The phone says "Mac offline" | Check the bell is in your Mac's menu bar and its menu says the listener is running. If the bell has gone, start the Desk again, as in [When something's off](#when-somethings-off). |
 | "Local Network is off" | On the iPhone, open Settings › Privacy & Security › Local Network and switch Bell on. |
 | The Mac didn't accept that code | Choose **Pair a phone…** again and start again on the phone; it shows a new code. After a wrong code, pairing pauses for 30 seconds. |
-| The phone says "Pairing isn't open" | Choose **Pair a phone…** in the Desk's bell menu. Pairing stays open for three minutes. |
+| The phone says to choose "Pair a phone…" | Choose **Pair a phone…** in the Desk's bell menu. Pairing stays open for three minutes. |
 | The phone says "Nothing was paired" after you typed the Mac's code | The code didn't match twice. If your Mac never showed a code, the phone reached a different Mac: tap **Try again**. |
 | The phone says "Not your Mac" or "Not recognised" | Bell has stopped sending. If you reset Letterbox Desk, changed Mac or unpaired the phone, tap **Pair again**. Otherwise check the phone is on your usual Wi-Fi. |
 | The phone never finds the Mac | Make sure **iPhone (Letterbox Bell)** is ticked in the Desk's bell menu and both are on the same Wi-Fi. |
