@@ -27,7 +27,7 @@ from bell_desk.sender import PinnedHelper, file_sha256  # noqa: E402
 from bell_desk.server import App, DeskHTTPServer, phone_letter_id  # noqa: E402
 from bell_desk.store import State  # noqa: E402
 from bell_desk.watcher import read_header  # noqa: E402
-from tests.test_listener import FAKE_HELPER, ISOLATED_PATH, letter, make_bus  # noqa: E402
+from tests.test_listener import FAKE_HELPER, ISOLATED_PATH, letter, make_bus, ringing  # noqa: E402
 
 TEAM_TEXT = """── team health (read-only; queue counts exclude retained ack/nack mail)
    alice: queue[unacked=0 accepted=0] oldest=none owner=alice status=working:22d ring=stale:send_failed pin=live acr=1d
@@ -50,7 +50,7 @@ class DeskSetup(unittest.TestCase):
         pathlib.Path(script).write_text(FAKE_HELPER)
         os.chmod(script, stat.S_IRWXU)
         self.mode("ok")
-        helper = PinnedHelper(script, file_sha256(script), bus_dir=self.bus, env_path=ISOLATED_PATH)
+        helper = PinnedHelper(script, file_sha256(script), bus_dir=self.bus, env_path=ISOLATED_PATH, **ringing(script))
         self.state = State(os.path.join(root, "state"))
         self.app = App(self.state, helper, self.bus, ["alice", "bob"], console=lambda m: None)
         self.mail = DeskMail(self.bus, self.state, ["alice", "bob"])
@@ -419,27 +419,110 @@ class DoorbellSettingsTests(unittest.TestCase):
             pathlib.Path(tmp, "elsewhere.sh").write_text("#!/bin/sh\n")
             self.assertEqual(doorbell(root, helper), {})
 
-    def test_a_changed_adapter_is_left_out_so_letters_go_without_ringing(self):
+    def test_a_letter_that_cannot_ring_is_not_sent(self):
         with tempfile.TemporaryDirectory() as tmp:
+            ran = os.path.join(tmp, "ran")
+            path = os.path.join(tmp, "letterbox")
+            pathlib.Path(path).write_text(f"#!/bin/sh\ntouch '{ran}'\n")
+            os.chmod(path, stat.S_IRWXU)
             adapter = os.path.join(tmp, "cmux.sh")
             pathlib.Path(adapter).write_text("#!/bin/sh\n")
-            helper = PinnedHelper("/x", "0" * 64, bus_dir=tmp, kind="letterbox",
-                                  doorbell={"LETTERBOX_DOORBELL": adapter}, doorbell_sha256=file_sha256(adapter))
-            self.assertEqual(helper._env()["LETTERBOX_DOORBELL"], adapter)
+            pinned = file_sha256(adapter)
+            helper = PinnedHelper(path, file_sha256(path), bus_dir=tmp, kind="letterbox",
+                                  doorbell={"LETTERBOX_DOORBELL": adapter}, doorbell_sha256=pinned)
+            refused = {"status": "not_confirmed", "reason": "doorbell_changed"}
             pathlib.Path(adapter).write_text("#!/bin/sh\necho changed\n")
-            self.assertNotIn("LETTERBOX_DOORBELL", helper._env())
-            self.assertEqual((helper._env()["LETTERBOX_AGENT"], helper._env()["LETTERBOX_DIR"]), ("desk", tmp))
+            self.assertEqual(helper.send("alice", "Hello."), refused)
+            os.remove(adapter)
+            self.assertEqual(helper.send("alice", "Hello."), refused)
+            no_doorbell = PinnedHelper(path, file_sha256(path), bus_dir=tmp, kind="letterbox")
+            self.assertEqual(no_doorbell.send("alice", "Hello."), {"status": "not_confirmed", "reason": "no_doorbell"})
+            self.assertFalse(os.path.exists(ran), "the helper ran for a letter that could not ring")
+            pathlib.Path(adapter).write_text("#!/bin/sh\n")
+            self.assertEqual(helper._env()["LETTERBOX_DOORBELL"], adapter)
+            self.assertEqual(helper.send("alice", "Hello."), {"status": "not_confirmed", "reason": "helper_exit_0"})
+            self.assertTrue(os.path.exists(ran), "with the pinned doorbell back, the helper runs")
+
+    def test_status_says_when_the_doorbell_stops_sends(self):
+        from bell_desk.cli import pin_status
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "letterbox")
+            pathlib.Path(path).write_text("#!/bin/sh\n")
+            adapter = os.path.join(tmp, "cmux.sh")
+            pathlib.Path(adapter).write_text("#!/bin/sh\n")
+            helper = PinnedHelper(path, file_sha256(path), bus_dir=tmp, kind="letterbox",
+                                  doorbell={"LETTERBOX_DOORBELL": adapter}, doorbell_sha256=file_sha256(adapter))
+            self.assertEqual(pin_status(helper), "helper pin ok")
+            with patch.object(sys, "argv", [sys.executable, "serve"]):
+                pathlib.Path(adapter).write_text("#!/bin/sh\necho changed\n")
+                self.assert_setup_command(pin_status(helper), "doorbell CHANGED: sends refused. ")
+                no_doorbell = PinnedHelper(path, file_sha256(path), bus_dir=tmp, kind="letterbox")
+                self.assertEqual(pin_status(no_doorbell), "NO DOORBELL: sends refused")
+                pathlib.Path(path).write_text("#!/bin/sh\necho changed\n")
+                self.assert_setup_command(pin_status(helper), "helper pin MISMATCH: sends refused. ")
+
+    def assert_setup_command(self, text, prefix):
+        """The refusal names this process's own path, which exists, and not a bare bell-desk.
+        `python -m unittest` rewrites argv[0], so the listener path is set for the check."""
+        self.assertTrue(text.startswith(prefix), text)
+        command = text[len(prefix):]
+        self.assertTrue(command.startswith("Run ") and command.endswith(" setup"), command)
+        path = command[len("Run "):-len(" setup")]
+        self.assertEqual(path, os.path.realpath(sys.argv[0]))
+        self.assertTrue(os.path.isfile(path), path)
+        self.assertNotIn(" bell-desk ", f" {text} ")
+
+    def test_enter_keeps_the_saved_roster_and_a_first_setup_still_takes_every_agent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            install = os.path.join(tmp, "agent-letterbox-cmux")
+            os.makedirs(os.path.join(install, "bin"))
+            os.makedirs(os.path.join(install, "adapters"))
+            helper = os.path.join(install, "bin", "letterbox")
+            pathlib.Path(helper).write_text("#!/bin/sh\necho 'letterbox 0.7.1'\n")
+            os.chmod(helper, stat.S_IRWXU)
+            adapter = os.path.join(install, "adapters", "cmux.sh")
+            pathlib.Path(adapter).write_text("#!/bin/sh\n")
+            root = os.path.join(tmp, "box")
+            make_bus(root, ["alice", "bob", "carol"])
+            pathlib.Path(root, "env.sh").write_text(
+                f"export LETTERBOX_DIR='{root}'\nexport LETTERBOX_DOORBELL='{adapter}'\n")
+            state = os.path.join(tmp, "state")
+            State(state).save_config({"bus": root, "seats": ["alice"], "phone": False, "helper": helper,
+                                       "helper_sha256": "abc", "helper_kind": "letterbox"})
+            with patch("builtins.input", side_effect=["", "y"]) as prompted, redirect_stdout(StringIO()):
+                code = cli.main(["--state", state, "setup", "--letterbox-dir", root, "--helper", helper])
+            self.assertEqual(code, 0)
+            self.assertEqual(State(state).config()["seats"], ["alice"])
+            self.assertIn("Enter keeps alice", prompted.call_args_list[0].args[0])
+            fresh = os.path.join(tmp, "fresh")
+            with patch("builtins.input", side_effect=["", "y", "n"]), redirect_stdout(StringIO()):
+                code = cli.main(["--state", fresh, "setup", "--letterbox-dir", root, "--helper", helper])
+            self.assertEqual(code, 0)
+            self.assertEqual(State(fresh).config()["seats"], ["alice", "bob", "carol"])
+
+    def test_a_send_stopped_for_the_doorbell_counts_as_never_attempted(self):
+        for reason in ("doorbell_changed", "no_doorbell"):
+            self.assertEqual(App._seat_result("alice", {"status": "not_confirmed", "reason": reason}),
+                             {"to": "alice", "status": "not_attempted", "reason": reason})
 
 
 @unittest.skipUnless(PUBLIC_HELPER and os.access(PUBLIC_HELPER, os.X_OK), "set BELL_DESK_TEST_PUBLIC_HELPER")
 class PublicLetterboxTests(unittest.TestCase):
-    """The real public helper on a scratch letterbox, with no doorbell configured: nothing can ring."""
+    """The real public helper on a scratch letterbox. Its doorbell has an empty pane registry and no multiplexer on
+    PATH, so nothing can ring."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = os.path.join(self.tmp.name, "box")
         make_bus(self.root, ["alice", "bob"])
         self.state = os.path.join(self.tmp.name, "state")
+        install = os.path.dirname(os.path.dirname(os.path.realpath(PUBLIC_HELPER)))
+        name = next(n for n in sorted(os.listdir(os.path.join(install, "adapters"))) if n != "noop.sh")
+        registry = os.path.join(self.tmp.name, "agents.tsv")
+        pathlib.Path(registry).write_text("")
+        pathlib.Path(self.root, "env.sh").write_text(
+            f"export LETTERBOX_DIR='{self.root}'\nexport LETTERBOX_DOORBELL='{os.path.join(install, 'adapters', name)}'\n"
+            f"export LETTERBOX_{name[:-3].upper()}_REGISTRY='{registry}'\n")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -454,13 +537,19 @@ class PublicLetterboxTests(unittest.TestCase):
         self.assertEqual((config["helper_kind"], config["seats"], config["bus"]), ("letterbox", ["alice", "bob"], os.path.realpath(self.root)))
         self.assertTrue(os.path.isdir(os.path.join(self.root, "desk", "inbox")))
         helper = PinnedHelper(config["helper"], config["helper_sha256"], bus_dir=config["bus"], env_path=ISOLATED_PATH,
-                              kind="letterbox")
+                              kind="letterbox", doorbell=config["doorbell"], doorbell_sha256=config["doorbell_sha256"])
+        self.assertEqual(helper._env()["LETTERBOX_DOORBELL"], config["doorbell"]["LETTERBOX_DOORBELL"])
         result = helper.send("alice", "Hello from the desk.", re_id="2026-10-07T120000-alice-info-x-1234abcd")
         self.assertEqual(result["status"], "sent", result)
-        self.assertEqual(result["ring"], {"outcome": "no_live_surface", "reason": "adapter_unavailable"})
+        self.assertEqual(result["ring"]["outcome"], "no_live_surface", result)
         fields = read_header(os.path.join(config["bus"], "alice", "inbox", result["id"] + ".md"))
         self.assertEqual((fields["from"], fields["to"], fields["type"], fields["priority"], fields["re"]),
                          ("desk", "alice", "info", "now", "2026-10-07T120000-alice-info-x-1234abcd"))
+
+    def test_setup_refuses_a_letterbox_with_no_doorbell(self):
+        os.remove(os.path.join(self.root, "env.sh"))
+        self.assertEqual(self.setup_cli("--yes"), 2)
+        self.assertEqual(State(self.state).config(), {})
 
     def test_setup_refuses_agents_that_are_not_in_the_letterbox_and_an_old_helper(self):
         self.assertEqual(self.setup_cli("--yes", "--agents", "alice,mallory"), 2)
@@ -519,7 +608,11 @@ class EveryPublicEditionTests(unittest.TestCase):
                     root = self.letterbox_for(edition, with_doorbell)
                     state = os.path.join(self.tmp.name, f"state-{edition}-{with_doorbell}")
                     helper_path = os.path.join(install, "bin", "letterbox")
-                    self.assertEqual(cli.main(["--state", state, "setup", "--letterbox-dir", root, "--helper", helper_path, "--yes"]), 0)
+                    code = cli.main(["--state", state, "setup", "--letterbox-dir", root, "--helper", helper_path, "--yes"])
+                    if not with_doorbell:
+                        self.assertEqual((code, State(state).config()), (2, {}), "set up a letterbox that cannot ring")
+                        continue
+                    self.assertEqual(code, 0)
                     config = State(state).config()
                     self.assertEqual(bool(config["doorbell"]), with_doorbell)
                     helper = PinnedHelper(config["helper"], config["helper_sha256"], bus_dir=config["bus"],
@@ -528,10 +621,7 @@ class EveryPublicEditionTests(unittest.TestCase):
                     result = helper.send("alice", f"Hello {edition}.", re_id="2026-10-07T120000-alice-info-x-1234abcd")
                     self.assertEqual(result["status"], "sent", result)
                     self.assertEqual(result["ring"]["outcome"], "no_live_surface", result)
-                    if with_doorbell:
-                        self.assertNotEqual(result["ring"]["reason"], "adapter_unavailable", "the adapter never ran")
-                    else:
-                        self.assertEqual(result["ring"]["reason"], "adapter_unavailable")
+                    self.assertNotEqual(result["ring"]["reason"], "adapter_unavailable", "the adapter never ran")
                     path = os.path.join(config["bus"], "alice", "inbox", result["id"] + ".md")
                     fields = read_header(path)
                     self.assertEqual((fields["from"], fields["priority"], fields["re"]),
@@ -588,7 +678,8 @@ class PhoneSideTests(unittest.TestCase):
         helper_path = os.path.join(root, "helper.sh")
         pathlib.Path(helper_path).write_text(FAKE_HELPER)
         os.chmod(helper_path, stat.S_IRWXU)
-        helper = PinnedHelper(helper_path, file_sha256(helper_path), bus_dir=bus, env_path=ISOLATED_PATH)
+        helper = PinnedHelper(helper_path, file_sha256(helper_path), bus_dir=bus, env_path=ISOLATED_PATH,
+                              **ringing(helper_path))
         self.state = State(os.path.join(root, "state"))
         self.app = App(self.state, helper, bus, ["alice"], console=lambda _: None, phone=False)
         with socket.socket() as probe:
@@ -730,7 +821,7 @@ sys.exit(cli.main(sys.argv[2:]))
             for phone in (False, True):
                 with self.subTest(phone=phone):
                     pathlib.Path(marker).unlink(missing_ok=True)
-                    state.save_config({"helper": helper, "helper_sha256": file_sha256(helper), "helper_kind": "letterbox",
+                    state.save_config({"helper": helper, "helper_sha256": file_sha256(helper), "helper_kind": "letterbox", **ringing(helper),
                                        "bus": bus, "seats": ["alice"], "phone": phone})
                     with socket.socket() as probe:
                         probe.bind(("127.0.0.1", 0))
@@ -843,7 +934,7 @@ sys.exit(cli.main(sys.argv[2:]))
         pathlib.Path(helper).write_text("#!/bin/sh\n")
         state_dir = os.path.join(root, "state")
         state = State(state_dir)
-        state.save_config({"helper": helper, "helper_sha256": file_sha256(helper), "helper_kind": "letterbox",
+        state.save_config({"helper": helper, "helper_sha256": file_sha256(helper), "helper_kind": "letterbox", **ringing(helper),
                            "bus": bus, "seats": ["alice"], "phone": phone})
         for device_id in devices or []:
             state.add_device(device_id, {"name": "iPhone"})
@@ -1233,7 +1324,7 @@ sys.exit(cli.main(sys.argv[2:]))
             bus = os.path.join(root, "bus")
             make_bus(bus, ["desk", "alice"])
             holder = State(root)
-            holder.save_config({"helper": helper, "helper_sha256": file_sha256(helper), "helper_kind": "letterbox",
+            holder.save_config({"helper": helper, "helper_sha256": file_sha256(helper), "helper_kind": "letterbox", **ringing(helper),
                                 "bus": bus, "seats": ["alice"]})
             holder.lock_instance()
             try:
@@ -1269,7 +1360,7 @@ sys.exit(cli.main(sys.argv[2:]))
             bus = os.path.join(root, "bus")
             make_bus(bus, ["desk", "alice"])
             holder = State(root)
-            holder.save_config({"helper": helper, "helper_sha256": file_sha256(helper), "helper_kind": "letterbox",
+            holder.save_config({"helper": helper, "helper_sha256": file_sha256(helper), "helper_kind": "letterbox", **ringing(helper),
                                 "bus": bus, "seats": ["alice"]})
             self.assertTrue(service.lock_free(root))
             holder.lock_instance()
@@ -1441,7 +1532,7 @@ class ConversationTests(DeskSetup):
 
     def test_attachment_verification_requires_reply_from_requested_seat(self):
         from bell_desk import attachments
-        config={'bus':self.bus,'seats':['alice','bob'],'helper':self.app.helper.path,'helper_sha256':self.app.helper.sha256,'helper_kind':'letterbox'}
+        config={'bus':self.bus,'seats':['alice','bob'],'helper':self.app.helper.path,'helper_sha256':self.app.helper.sha256,'helper_kind':'letterbox','doorbell':self.app.helper.doorbell,'doorbell_sha256':self.app.helper.doorbell_sha256}
         self.state.save_config(config)
         attachments.command(self.state,'configure',os.path.join(self.root,'pictures'))
         attachments.command(self.state,'verify','alice')
@@ -1457,7 +1548,7 @@ class ConversationTests(DeskSetup):
     def picture_setup(self, folder=''):
         from bell_desk import attachments
         self.state.save_config({'bus':self.bus,'seats':['alice','bob'],'helper':self.app.helper.path,
-                                'helper_sha256':self.app.helper.sha256,'helper_kind':'letterbox'})
+                                'helper_sha256':self.app.helper.sha256,'helper_kind':'letterbox','doorbell':self.app.helper.doorbell,'doorbell_sha256':self.app.helper.doorbell_sha256})
         return attachments.command(self.state, 'setup', folder)
 
     def picture_reply(self, seat='alice', **changes):
@@ -1575,7 +1666,7 @@ class ConversationTests(DeskSetup):
 
     def test_picture_setup_window_can_initialize_default_for_one_seat(self):
         self.state.save_config({'bus':self.bus,'seats':['alice','bob'],'helper':self.app.helper.path,
-                                'helper_sha256':self.app.helper.sha256,'helper_kind':'letterbox'})
+                                'helper_sha256':self.app.helper.sha256,'helper_kind':'letterbox','doorbell':self.app.helper.doorbell,'doorbell_sha256':self.app.helper.doorbell_sha256})
         self.bridge.handle({'picture_setup':{'seat':'bob'}})
         self.assertEqual(self.wait_for('picture_setup')['summary']['status'],'sent')
         self.assertEqual(set(self.state.config()['attachments']['probes']),{'bob'})
@@ -1584,7 +1675,7 @@ class ConversationTests(DeskSetup):
     def test_picture_setup_cli_and_concurrent_config_updates(self):
         output=StringIO()
         self.state.save_config({'bus':self.bus,'seats':['alice','bob'],'helper':self.app.helper.path,
-                                'helper_sha256':self.app.helper.sha256,'helper_kind':'letterbox'})
+                                'helper_sha256':self.app.helper.sha256,'helper_kind':'letterbox','doorbell':self.app.helper.doorbell,'doorbell_sha256':self.app.helper.doorbell_sha256})
         with redirect_stdout(output):
             self.assertEqual(cli.main(['--state',self.state.root,'attachments','setup']),0)
         self.assertIn('Picture folder:',output.getvalue())

@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import secrets
+import shlex
 import stat
 import sys
 import threading
@@ -12,7 +13,7 @@ import time
 from . import letterbox, macui, service
 from .desk import DeskBridge, DeskMail
 from .phone import PhoneSide
-from .sender import from_config, HelperConfigurationError, file_sha256
+from .sender import from_config, adopt_saved_pins, HelperConfigurationError, file_sha256
 from .server import App
 from .store import State, _write_private
 from .watcher import InboxWatcher, SEAT_RE
@@ -28,6 +29,21 @@ commands:
   unpair <device>   remove a phone; it must pair again
   status            helper pin, seats, phone switch
   quit              stop the listener"""
+
+
+def setup_again() -> str:
+    """A setup command that works as typed. The install puts bell-desk in its own folder and not on PATH,
+    so the refusal names the running tool, which is that file."""
+    return f"Run {shlex.quote(os.path.realpath(sys.argv[0]))} setup"
+
+
+def pin_status(helper) -> str:
+    """One status phrase that agrees with what a send would do."""
+    again = setup_again()
+    return {"": "helper pin ok",
+            "helper_changed": f"helper pin MISMATCH: sends refused. {again}",
+            "doorbell_changed": f"doorbell CHANGED: sends refused. {again}",
+            "no_doorbell": "NO DOORBELL: sends refused"}[helper.refusal()]
 
 
 def phone_enabled(config: dict, state: State) -> bool:
@@ -73,20 +89,28 @@ def cmd_setup(args) -> int:
     if not agents:
         print(f"bell-desk: no agents in {root}. Set up your letterbox and its agents first.", file=sys.stderr)
         return 2
+    state = State(args.state)
+    previous = state.config()
+    saved_seats = previous.get("seats")
+    saved = [seat for seat in saved_seats if isinstance(seat, str) and seat in agents] if isinstance(saved_seats, list) else []
     door = letterbox.doorbell(root, helper)
     print(f"Letterbox:  {root}  (from the {how})")
     print(f"Helper:     {helper}  (letterbox {'.'.join(map(str, version))}, {letterbox.edition(helper) or 'unknown'} edition)")
     print(f"Doorbell:   {door['LETTERBOX_DOORBELL'] if door else 'none found'}")
     if not door:
-        print(f"WARNING: no doorbell settings in {os.path.join(root, 'env.sh')} (run your edition's `letterbox <edition> setup`)."
-              " Letters will still arrive, but agents will not be rung.")
+        print(f"bell-desk: no doorbell settings in {os.path.join(root, 'env.sh')}, so your agents would never be rung."
+              " Run your edition's `letterbox <edition> setup`, then set up the Desk again.", file=sys.stderr)
+        return 2
     print(f"Agents:     {', '.join(agents)}")
     chosen = agents
     if args.agents:
         chosen = [a for a in args.agents.split(",") if a]
     elif not args.yes:
-        typed = input("Agents the Desk may write to (Enter for all of them, or names separated by commas): ").strip()
-        chosen = [a.strip() for a in typed.split(",") if a.strip()] if typed else agents
+        prompt = (f"Agents the Desk may write to (Enter keeps {', '.join(saved)}, or names separated by commas): "
+                  if saved else
+                  "Agents the Desk may write to (Enter for all of them, or names separated by commas): ")
+        typed = input(prompt).strip()
+        chosen = [a.strip() for a in typed.split(",") if a.strip()] if typed else (saved or agents)
     unknown = [a for a in chosen if a not in agents]
     if unknown or not chosen:
         print(f"bell-desk: not agents in this letterbox: {', '.join(unknown) or 'none chosen'}", file=sys.stderr)
@@ -96,8 +120,6 @@ def cmd_setup(args) -> int:
         return 1
     for sub in ("inbox", "processed"):
         os.makedirs(os.path.join(root, "desk", sub), mode=0o700, exist_ok=True)
-    state = State(args.state)
-    previous = state.config()
     phone = phone_enabled(previous, state)
     if "bus" not in previous and not args.yes:
         phone = input("Use the iPhone app (Letterbox Bell)? [y/N] ").strip().lower() in ("y", "yes")
@@ -346,7 +368,7 @@ def console_loop(app: App, stop: threading.Event):
         elif verb == "unpair" and rest:
             print("unpaired" if app.unpair(rest[0]) else "no such device", flush=True)
         elif verb == "status":
-            print(f"helper pin {'ok' if app.helper.pin_ok() else 'MISMATCH: sends refused'}; "
+            print(f"{pin_status(app.helper)}; "
                   f"seats {', '.join(app.seats)}; phone {'on' if app.phone_active else 'off'}", flush=True)
         elif verb in ("quit", "exit"):
             break
@@ -475,6 +497,7 @@ def cmd_serve(args) -> int:
         tick = 0
         while not stop.wait(2):
             tick += 1
+            app.helper = adopt_saved_pins(app.helper, state.config(), bus)
             notice = sync_phone_with_config()
             if notice:
                 send_state(notice)
@@ -500,7 +523,7 @@ def cmd_serve(args) -> int:
     threading.Thread(target=tell_menubar, name="menubar-state", daemon=True).start()
     threading.Thread(target=answer_pair_requests, name="pair-requests", daemon=True).start()
     print(f"bell-desk {'listening on ' + args.host + ':' + str(args.port) if active else 'Desk only'} · bus {bus}", flush=True)
-    print(f"seats: {', '.join(seats)} · helper pin {'ok' if helper.pin_ok() else 'MISMATCH: sends refused'}"
+    print(f"seats: {', '.join(seats)} · {pin_status(helper)}"
           f" · phone {'on' if active else 'off'}", flush=True)
     if args.pair and active:
         app.open_pairing()

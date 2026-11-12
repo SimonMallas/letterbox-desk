@@ -16,10 +16,12 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import crypto
+from .sender import adopt_saved_pins
 from .store import summarize
 
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
+DIGITS_RE = re.compile(r"^[0-9]{1,12}$")  # str.isdigit() also passes digits int() refuses
 PAIR_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 PAIR_STEP_RE = re.compile(r"^/v1/pair/([0-9a-f]{32})/(nonce|confirm|abandon)$")
 LETTER_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{6}")
@@ -38,7 +40,7 @@ CONFIRM_WINDOW = 120  # time for the phone to prove code B once code A matched
 MAX_PENDING_PAIRS = 3
 PAIR_COOLDOWN = 30
 PAIR_FORGET = 600    # a finished attempt is kept this long, so a phone still asking sees how it ended
-NEVER_RAN = {"helper_changed", "helper_unavailable"}
+NEVER_RAN = {"helper_changed", "helper_unavailable", "doorbell_changed", "no_doorbell"}
 
 
 def clean_text(text):
@@ -378,7 +380,7 @@ class App:
         nonce = headers.get("X-Belldesk-Nonce", "")
         sig = headers.get("X-Belldesk-Sig", "")
         device = self.state.devices().get(device_id)
-        if not device or not ts.isdigit() or not NONCE_RE.match(nonce):
+        if not device or not DIGITS_RE.match(ts) or not NONCE_RE.match(nonce):
             return None
         now = time.time()
         if abs(now - int(ts)) > CLOCK_SKEW:
@@ -574,6 +576,7 @@ class App:
             copies = {seat: {"text": text if reply_seat == seat else self._copy_text(text, seat, seats, picture_copy),
                              "re": re_id if reply_seat is None or reply_seat == seat else ""} for seat in seats} if via == "mac" else None
             self.state.request_begin(request_id, seats, text=text, re_id=re_id, via=via, retry_of=retry_of, copies=copies)
+            self.helper = adopt_saved_pins(self.helper, self.state.config(), self.bus_dir)
             results = []
             stopped = None
             for seat in seats:
@@ -630,7 +633,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self):
         length = self.headers.get("Content-Length", "0")
-        if not length.isdigit() or int(length) > MAX_BODY:
+        if not DIGITS_RE.match(length) or int(length) > MAX_BODY:
             return None
         return self.rfile.read(int(length)) if int(length) else b""
 

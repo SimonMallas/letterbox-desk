@@ -57,7 +57,8 @@ else
 fi
 
 step "Pictures"
-"$here/mac/Tools/setup-pictures.sh" "$here/mac/.venv/bin/bell-desk"
+# A picture problem must not stop the listener below from restarting on the new version.
+"$here/mac/Tools/setup-pictures.sh" "$here/mac/.venv/bin/bell-desk" || echo "  Pictures were not set up. Set them up later with: $here/mac/.venv/bin/bell-desk attachments setup"
 
 step "Starting the listener"
 # A listener that was already running keeps running the old version until it restarts.
@@ -75,13 +76,13 @@ else
     echo "  Run this in a terminal and keep it open:  $here/mac/.venv/bin/bell-desk serve"
     echo "  To pair your iPhone, type pair in that window, then open Letterbox Bell on the phone."
   elif [ "$rc" -eq 5 ]; then
-    read -r -p "  Replace it, so this install starts at login instead? The other one stops. [y/N] " answer
+    read -r -p "  Replace it, so this install starts at login instead? The other one stops. [y/N] " answer || answer=""
     case "${answer:-n}" in
       [Yy]*) if ! bell service install; then echo "  Letterbox Desk did not start. Fix the problem above, then run: $here/mac/.venv/bin/bell-desk service install" >&2; exit 1; fi ;;
       *) echo "  Left as it is. To switch later, run:  $here/mac/.venv/bin/bell-desk service install" ;;
     esac
   else
-    read -r -p "  Start Letterbox Desk now and every time you log in? [Y/n] " answer
+    read -r -p "  Start Letterbox Desk now and every time you log in? [Y/n] " answer || answer=""
     case "${answer:-y}" in
       [Yy]*) if ! bell service install; then echo "  Letterbox Desk did not start. Fix the problem above, then run: $here/mac/.venv/bin/bell-desk service install" >&2; exit 1; fi ;;
       *) echo "  Not started. Start it any time with:  $here/mac/.venv/bin/bell-desk service install" ;;

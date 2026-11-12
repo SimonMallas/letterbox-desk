@@ -28,9 +28,29 @@ def from_config(config, root):
                         doorbell_sha256=config.get('doorbell_sha256', ''))
 
 
+def adopt_saved_pins(helper, config, root):
+    """Replace a helper loaded at startup when setup has saved different pins. The same pins stay in place,
+    so a doorbell or helper that changed on disk still refuses until setup records the new one."""
+    if not isinstance(config, dict):
+        return helper
+    path, sha = config.get("helper"), config.get("helper_sha256")
+    door, door_sha = config.get("doorbell") or {}, config.get("doorbell_sha256") or ""
+    if not isinstance(path, str) or not path or not isinstance(sha, str) or not sha:
+        return helper
+    if not isinstance(door, dict) or not isinstance(door_sha, str):
+        return helper
+    if (helper.path == path and helper.sha256 == sha.lower() and helper.kind == config.get("helper_kind")
+            and helper.doorbell == door and helper.doorbell_sha256 == door_sha.lower()):
+        return helper
+    try:
+        return from_config(config, root)
+    except (HelperConfigurationError, KeyError, OSError):
+        return helper
+
+
 class PinnedHelper:
     """Pinned public Letterbox helper, with compatibility for older saved configurations.
-    A changed doorbell adapter is omitted: letters can still be published without a ring.
+    A letter that cannot ring is not sent: with no doorbell, or one that changed since setup, the helper never runs.
     """
 
     def __init__(self, path: str, sha256: str, bus_dir: str = "", env_path: str = DEFAULT_PATH, timeout: float = 30,
@@ -68,6 +88,14 @@ class PinnedHelper:
         except OSError:
             return False
 
+    def refusal(self) -> str:
+        """Why a send would be stopped before the helper runs; empty when nothing stops it."""
+        if not self.pin_ok():
+            return "helper_changed"
+        if self.kind == "letterbox" and not self.doorbell_ok():
+            return "doorbell_changed" if self.doorbell else "no_doorbell"
+        return ""
+
     def _env(self) -> dict:
         env = {k: os.environ[k] for k in PASS_ENV if k in os.environ}
         env["PATH"] = self.env_path
@@ -84,8 +112,9 @@ class PinnedHelper:
 
     def send(self, to: str, text: str, re_id: str = "") -> dict:
         """One attempt, never retried. `sent` only when the helper reports the written letter."""
-        if not self.pin_ok():
-            return {"status": "not_confirmed", "reason": "helper_changed"}
+        reason = self.refusal()
+        if reason:
+            return {"status": "not_confirmed", "reason": reason}
         try:
             done = subprocess.run(
                 [self.path, "send", to, "info", SLUG, "--now"] + (["--re", re_id] if re_id else []),

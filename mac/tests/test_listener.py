@@ -35,6 +35,13 @@ def make_bus(root, seats):
             os.makedirs(os.path.join(root, seat, sub), exist_ok=True)
 
 
+def ringing(script):
+    """A pinned doorbell beside a fake helper, so the Desk lets the send run (a letter that cannot ring is not sent)."""
+    adapter = os.path.join(os.path.dirname(script), "doorbell.sh")
+    pathlib.Path(adapter).write_text("#!/bin/sh\n")
+    return {"doorbell": {"LETTERBOX_DOORBELL": adapter}, "doorbell_sha256": file_sha256(adapter)}
+
+
 FAKE_HELPER = """#!/bin/bash
 here="$(dirname "$0")"
 printf '%s\\n' "$@" > "$here/calls/args.$$"
@@ -112,6 +119,16 @@ class WatcherTests(unittest.TestCase):
                                         "priority": "now", "ts": "2026-10-07T08:00:00Z", "for_you": False}])
         self.watcher.scan_once()
         self.assertEqual(len(self.events), 1)
+
+    def test_every_new_letter_to_the_person_rings_whatever_its_priority(self):
+        # Every letter rings its recipient; --now only marks it urgent (Letterbox 0.7.1). The person is the
+        # desk seat, so a letter to desk reaches the phone without --now. Between agents only urgent mail does.
+        self.watcher.baseline()
+        self.drop("desk", "r-1", id="r-1", **{"from": "bob"}, to="desk", type="info", priority="next", sent="2026-11-10T20:25:53Z")
+        self.drop("alice", "a-1", id="a-1", **{"from": "bob"}, to="alice", type="info", priority="next")
+        self.watcher.scan_once()
+        self.assertEqual(self.events, [{"to": "desk", "from": "bob", "letter_type": "info", "id": "r-1",
+                                        "priority": "next", "ts": "2026-11-10T20:25:53Z", "for_you": True}])
 
     def test_ineligible_letters_are_silent(self):
         self.watcher.baseline()
@@ -237,7 +254,8 @@ class HelperTests(unittest.TestCase):
 
     def helper(self, mode, timeout=30):
         pathlib.Path(self.tmp.name, "mode").write_text(mode)
-        return PinnedHelper(self.script, file_sha256(self.script), bus_dir="/fixture/bus", env_path=ISOLATED_PATH, timeout=timeout)
+        return PinnedHelper(self.script, file_sha256(self.script), bus_dir="/fixture/bus", env_path=ISOLATED_PATH, timeout=timeout,
+                            **ringing(self.script))
 
     def test_sent_parses_envelope_and_ring(self):
         result = self.helper("ok").send("bob", "hello bob")
@@ -356,7 +374,7 @@ class ServerTests(unittest.TestCase):
         os.chmod(script, stat.S_IRWXU)
         pathlib.Path(root, "mode").write_text("ok")
         os.environ["MODE"] = "leaks-if-env-is-passed"
-        helper = PinnedHelper(script, file_sha256(script), bus_dir=self.bus, env_path=ISOLATED_PATH)
+        helper = PinnedHelper(script, file_sha256(script), bus_dir=self.bus, env_path=ISOLATED_PATH, **ringing(script))
         self.app = App(State(os.path.join(root, "state")), helper, self.bus, ["alice", "bob", "frank"],
                        console=lambda m: None, ping_interval=0.3)
         self.server = DeskHTTPServer(("127.0.0.1", 0), self.app)
@@ -496,6 +514,26 @@ class ServerTests(unittest.TestCase):
         self.assertEqual([(r["to"], r["status"], r["reason"]) for r in result["results"]],
                          [("alice", "not_attempted", "helper_changed"), ("bob", "not_attempted", "helper_changed")])
         self.assertEqual(self.helper_calls(), 0)
+
+    def test_a_repin_on_disk_unblocks_the_next_send_without_a_restart(self):
+        adapter = self.app.helper.doorbell["LETTERBOX_DOORBELL"]
+        self.app.state.save_config({
+            "bus": self.bus, "seats": ["alice", "bob"], "helper": self.app.helper.path,
+            "helper_sha256": self.app.helper.sha256, "helper_kind": self.app.helper.kind,
+            "doorbell": self.app.helper.doorbell, "doorbell_sha256": self.app.helper.doorbell_sha256,
+        })
+        pathlib.Path(adapter).write_text("#!/bin/sh\necho changed\n")
+        refused = self.app.compose_from_mac(["alice"], "still the old pin")
+        self.assertEqual(refused["results"][0]["reason"], "doorbell_changed")
+        self.assertEqual(self.helper_calls(), 0)
+        self.app.state.save_config({**self.app.state.config(), "doorbell_sha256": file_sha256(adapter)})
+        sent = self.app.compose_from_mac(["alice"], "after setup")
+        self.assertEqual(sent["status"], "sent")
+        self.assertEqual(self.helper_calls(), 1)
+        pathlib.Path(self.app.helper.path).write_text(pathlib.Path(self.app.helper.path).read_text() + "\n# changed\n")
+        refused_helper = self.app.compose_from_mac(["alice"], "helper moved")
+        self.assertEqual(refused_helper["results"][0]["reason"], "helper_changed")
+        self.assertEqual(self.helper_calls(), 1)
 
     def test_bad_seat_lists_run_nothing(self):
         self.app.open_pairing()
@@ -885,6 +923,19 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.client.request("GET", "/v1/dictation/" + str(uuid.uuid4()), nonce=nonce)[0], 401)
         self.client.device_id = "0" * 16
         self.assertEqual(self.client.request("POST", "/v1/dictation", body)[0], 401)
+        self.assertEqual(self.helper_calls(), 0)
+
+    def test_digits_python_cannot_convert_are_refused_not_crashed(self):
+        self.app.open_pairing()
+        self.pair()
+        body = json.dumps({"request_id": str(uuid.uuid4()), "to": "bob", "text": "x"}).encode()
+        self.assertEqual(self.client.request("POST", "/v1/dictation", body, ts="\u00b2")[0], 401)
+        conn = http.client.HTTPConnection("127.0.0.1", self.client.port, timeout=10)
+        conn.putrequest("POST", "/v1/dictation")
+        conn.putheader("Content-Length", "\u00b2")
+        conn.endheaders()
+        self.assertEqual(conn.getresponse().status, 413)
+        conn.close()
         self.assertEqual(self.helper_calls(), 0)
 
     def test_signed_event_stream(self):

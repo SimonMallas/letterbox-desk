@@ -143,7 +143,7 @@ does not increase by one.
 | `type` | Fields | Meaning |
 |---|---|---|
 | `hello` | `name` (the Mac's name), `seats` (array of seat IDs, the server's allowlist), `last` (a `mail` object or null), `now` | First event on every stream. The phone shows exactly these seats in its picker, and this `name` (not the unsigned one from `/v1/hello`) once paired. |
-| `mail` | `to`, `from`, `letter_type`, `id`, `priority`, `ts`, `for_you` | A ring-eligible letter landed: `priority: now`, any inbox including `desk`'s, not sent by `desk`. `for_you` is true when `to` is `desk`: an agent wrote to the person. Envelope fields only. |
+| `mail` | `to`, `from`, `letter_type`, `id`, `priority`, `ts`, `for_you` | A ring-eligible letter landed, not sent by `desk`: any new letter to `desk` whatever its priority, or a `priority: now` letter in any other inbox. `priority` is the letter's own, or empty if it is not a lowercase token. `for_you` is true when `to` is `desk`: an agent wrote to the person. Envelope fields only. |
 | `ping` | `now` | Every 15 s. No event for 40 s means the stream is dead: reconnect. |
 
 `id` is the letter's time and short token, `<YYYY-MM-DDTHHMMSS>-<token>`, never its subject. The token

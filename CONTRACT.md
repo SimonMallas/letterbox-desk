@@ -14,10 +14,10 @@ editions link to it from their own docs. Until then it is the Desk's record of w
 
 | Edition | Version tested | How |
 |---|---|---|
-| cmux | 0.5.0 | `EveryPublicEditionTests`: setup and a desk send on a scratch letterbox, from each edition's published main |
-| tmux | 0.5.0 | same |
-| Zellij | 0.5.0 | same |
-| Herdr | 0.6.1 | same |
+| cmux | 0.7.0 | `EveryPublicEditionTests`: setup and a desk send that runs the doorbell, on a scratch letterbox, from each edition's published main |
+| tmux | 0.7.0 | same |
+| Zellij | 0.7.0 | same |
+| Herdr | 0.7.0 | same |
 
 Support and the setup check are two different things. Setup accepts any helper that reports
 0.5.0 or newer, and refuses an older one or one that reports no version. Only the versions in
@@ -80,7 +80,8 @@ These are constraints the Desk places on itself.
   its file name and `to` matches its mailbox. Dot-files are ignored. Symlinks are not followed.
 - The Desk shows up to 20,000 characters of a letter. A longer one ends with a line saying so and
   naming its file.
-- `priority: now` makes a new letter eligible to ring the phone. A ring also needs the phone side
+- A new letter to `desk` is eligible to ring the phone whatever its priority, as every letter rings its
+  recipient. Between agents, `priority: now` makes a new letter eligible. A ring also needs the phone side
   switched on, a paired phone, and a letter that arrived after the listener started. It is never
   a sign that anyone read the letter.
 
@@ -91,8 +92,9 @@ These are constraints the Desk places on itself.
 - The helper is pinned by sha256 at setup. If it changes, nothing is sent.
 - Doorbell settings are read from `env.sh` as text and never run. Only single-quoted
   `LETTERBOX_DOORBELL`, `LETTERBOX_<EDITION>_REGISTRY`, `_PATTERNS` and `_SUBMIT` are kept, and the
-  adapter has to be a file inside the helper's own install. The adapter is pinned by sha256. If it
-  changes, the Desk stops passing the doorbell settings, so letters still go but don't ring.
+  adapter has to be a file inside the helper's own install. The adapter is pinned by sha256. Setup
+  refuses a letterbox with no doorbell, and if the adapter changes or goes, nothing is sent: a
+  letter that cannot ring is not sent at all.
 
 **What the Desk writes**
 - In the letterbox: only the letters it sends through the helper, plus the desk mailbox at setup. It never

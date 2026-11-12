@@ -58,6 +58,8 @@ struct DeskModelCheck {
         let blocked=Summary(status:"not_sent",reason:"picture_access",request_id:nil,results:[SeatOutcome(to:"bob",status:"not_attempted",id:nil,reason:"picture_access",ring:nil)])
         model.conversationResults[model.draftKey]=blocked
         check(Words.lines(blocked).first?.0 == "Pictures are not set up yet: remove the picture to send the text","picture block explains text-only recovery")
+        check(Words.reason("helper_changed") == "Letterbox changed since the Desk was set up: from the Desk folder, run ./install-mac.sh --helper ~/.local/bin/letterbox","helper refusal names the installer command")
+        check(Words.reason("doorbell_changed") == "the doorbell changed since the Desk was set up: from the Desk folder, run ./install-mac.sh --helper ~/.local/bin/letterbox","doorbell refusal names the installer command")
         check(model.canSendWithoutPicture,"wholly blocked picture send offers text-only recovery")
         check(model.pictureSetupSeats == ["bob"],"picture setup action lists only blocked recipient")
         var setupMessages:[[String:Any]]=[]

@@ -82,8 +82,9 @@ person deliberately verifies and pins the intended version. The pin covers the h
 checked before each send. It catches an unexpected change, but it doesn't defend against something
 already running as you, which could change the helper, the files it loads, or the Desk itself.
 Doorbell settings are parsed as
-text, never sourced as shell code; a changed pinned doorbell adapter is omitted, so a letter
-may arrive without ringing. The selected roster limits whom Desk can write to.
+text, never sourced as shell code. The doorbell adapter is pinned too: with no doorbell, or a
+changed one, nothing is sent, because a letter that cannot ring is not sent at all. The selected
+roster limits whom Desk can write to.
 
 A published letter is not a read receipt. If publication cannot be confirmed, it may already
 have arrived. Neither a timeout nor reconnect automatically resends it. Explicit retries show

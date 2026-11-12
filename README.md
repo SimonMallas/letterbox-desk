@@ -39,7 +39,7 @@ The iPhone app is coming to the App Store. Until then you can build it onto your
 
 You need:
 
-- [Agent Letterbox](https://agentletterbox.com/) 0.5.0 or newer, any edition, set up with your agents;
+- [Agent Letterbox](https://agentletterbox.com/) 0.5.0 or newer, any edition, set up with your agents and its doorbell;
 - macOS 13 (Ventura) or later for Letterbox Desk (built and tested on macOS 27);
 - Python 3.11 or newer, or [uv](https://docs.astral.sh/uv/);
 - iOS 16 or later only if you want the Letterbox Bell add-on.
@@ -60,6 +60,8 @@ To pair your iPhone, choose **Pair a phone…** in the bell menu (or run `mac/.v
 ### Updating
 
 Pull the new version and run `./install-mac.sh` again. It restarts this install's listener so the new version is the one running. If you started the listener in a terminal, type `quit` there and start it again.
+
+**After you update Letterbox,** run `./install-mac.sh --helper ~/.local/bin/letterbox` (or the path to your helper). The Desk records the Letterbox helper and doorbell it was set up with, and refuses to send once either changes, because a letter that cannot ring is not sent. A plain `./install-mac.sh` keeps the old setup.
 
 Phones you already paired keep working after an update. Pairing a new phone takes two codes and needs Letterbox Bell 1.0.1 or later on the phone.
 

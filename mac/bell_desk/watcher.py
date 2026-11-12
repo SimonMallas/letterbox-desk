@@ -1,4 +1,4 @@
-"""Ring-eligible mail tap: a new letter with `priority: now` in any inbox.
+"""Ring-eligible mail tap: any new letter to desk, or a new `priority: now` letter in another inbox.
 
 A durable-mail tap, not proof a doorbell fired. Only envelope header fields
 leave this module; never a path or a body.
@@ -85,7 +85,10 @@ def mail_event(seat: str, name: str, fields: dict):
     sender = fields.get("from", "")
     letter_type = fields.get("type", "")
     sent = fields.get("sent", "")
-    if fields.get("priority") != "now":
+    priority = fields.get("priority", "")
+    # Every letter to the person rings, whatever its priority: --now only marks a letter urgent. Between
+    # agents the phone rings only for urgent mail.
+    if priority != "now" and seat != "desk":
         return None
     if fields.get("to") != seat or fields.get("id") != stem or not ENVELOPE_ID_RE.match(stem):
         return None
@@ -96,7 +99,7 @@ def mail_event(seat: str, name: str, fields: dict):
         "from": sender,
         "letter_type": letter_type if TYPE_RE.match(letter_type) else "",
         "id": stem,
-        "priority": "now",
+        "priority": priority if TYPE_RE.match(priority) else "",
         "ts": sent if TS_RE.match(sent) else "",
         "for_you": seat == "desk",
     }
